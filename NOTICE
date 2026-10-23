@@ -1,0 +1,6 @@
+quarshell workspace
+Copyright 2026 quarshell contributors
+
+Individual modules contain their own LICENSE and NOTICE files.
+Product modules use Apache-2.0. Logging helpers in `quarshell-core/slogx` retain their original MIT license.
+Third-party source files retain their original copyright and license notices. OpenShell-derived files that retain NVIDIA attribution are identified in their own headers and module NOTICE files.
