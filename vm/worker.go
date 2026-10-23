@@ -131,8 +131,8 @@ func validateWorkerNetworkBroker(config workerConfig) error {
 		}
 		return nil
 	}
-	if len(brokerPortMappings) != 1 || brokerPortMappings[0].Socket != config.NetworkBroker.Socket || brokerPortMappings[0].Listen {
-		return fmt.Errorf("VM worker requires one guest-initiated broker vsock mapping")
+	if len(brokerPortMappings) != 1 || brokerPortMappings[0].Socket != config.NetworkBroker.Socket || !brokerPortMappings[0].Listen {
+		return fmt.Errorf("VM worker requires one host-listening broker vsock mapping")
 	}
 	brokerPortCount, proxyPortCount := 0, 0
 	proxyPortValue := vmGuestProxyPortFromLaunch(config.Launch.Env)
@@ -341,6 +341,10 @@ func supervisorProxySocketPath(workerSocket, id string) string {
 
 func networkBrokerSocketPath(workerSocket, id string) string {
 	return filepath.Join(filepath.Dir(workerSocket), id+"-proxy.sock")
+}
+
+func networkBrokerVsockSocketPath(workerSocket, id string) string {
+	return filepath.Join(filepath.Dir(workerSocket), id+"-proxy-vsock.sock")
 }
 
 func workerPath(configured string) (string, error) {

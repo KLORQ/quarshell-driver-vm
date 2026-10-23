@@ -44,8 +44,13 @@ func Run() error {
 		if err != nil {
 			return fmt.Errorf("start guest policy proxy: %w", err)
 		}
+		brokerListener, err := startNetworkBrokerVsock(brokerPort)
+		if err != nil {
+			_ = listener.Close()
+			return fmt.Errorf("listen for host policy broker on vsock port %d: %w", brokerPort, err)
+		}
 		proxyURL = "http://127.0.0.1:" + strconv.Itoa(int(proxyPort))
-		go serveNetworkProxyBridge(listener, brokerPort)
+		go serveNetworkProxyBridge(listener, brokerListener)
 	}
 	if relayConfig.sshPort != 0 {
 		if err := startSSHRelayBridge(relayConfig.sshPort); err != nil {

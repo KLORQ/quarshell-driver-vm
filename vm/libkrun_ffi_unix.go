@@ -262,9 +262,8 @@ func (c *krunContext) configure(config KrunLaunchConfig) error {
 	}
 	ports = append(ports, config.VsockPorts...)
 	for _, mapping := range ports {
-		// A guest-initiated mapping connects libkrun to a host listener owned by
-		// the broker (or relay control server). Removing that socket here would
-		// unlink the live listener after its readiness check.
+		// A host-listening mapping makes libkrun own this Unix endpoint in the
+		// worker namespace; remove only a stale socket before starting it.
 		if mapping.Listen {
 			if err := removeStaleUnixSocket(mapping.Socket); err != nil {
 				return fmt.Errorf("prepare libkrun vsock host socket: %w", err)

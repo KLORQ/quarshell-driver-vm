@@ -308,7 +308,8 @@
         "quarshell-cli/internal/service/proxy_token_test.go::TestSandboxTokenFromDescriptorBoundAuthBundle",
         "quarshell-runtime/relayclient/isolation_test.go::TestValidateIsolationDescriptorBindsHostSupervisorIdentity",
         "quarshell-runtime/relayclient/isolation_test.go::TestValidateIsolationDescriptorRequiredForVMIdentity",
-        "plans/evidence/runs/vm-hvf-local-2026-10-22.md"
+        "plans/evidence/runs/vm-hvf-local-2026-10-22.md",
+        "plans/evidence/runs/vm-hvf-host-initiated-vsock-2026-10-23.md"
       ]
     },
     {

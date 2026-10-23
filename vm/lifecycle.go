@@ -350,13 +350,14 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 	}
 	workerControlPath, guestSocket, consolePath := workerSocketPaths(store.root, state.ID)
 	brokerSocket := networkBrokerSocketPath(workerControlPath, state.ID)
+	brokerVsockSocket := networkBrokerVsockSocketPath(workerControlPath, state.ID)
 	sshSocket := sshRelaySocketPath(workerControlPath, state.ID)
 	supervisorSocket := supervisorControlSocketPath(workerControlPath, state.ID)
 	supervisorProxySocket := supervisorProxySocketPath(workerControlPath, state.ID)
 	if err := validateWorkerSocket(workerControlPath); err != nil {
 		return err
 	}
-	for _, socket := range []string{workerControlPath, guestSocket, brokerSocket, sshSocket, supervisorSocket, supervisorProxySocket} {
+	for _, socket := range []string{workerControlPath, guestSocket, brokerSocket, brokerVsockSocket, sshSocket, supervisorSocket, supervisorProxySocket} {
 		if err := removeStaleUnixSocket(socket); err != nil {
 			return err
 		}
@@ -413,7 +414,7 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 			"CAUTEM_VM_NETWORK_BROKER_PORT="+strconv.Itoa(int(networkBrokerVsockPort)),
 			"CAUTEM_VM_NETWORK_PROXY_PORT="+strconv.Itoa(proxyPort),
 		)
-		launch.VsockPorts = append(launch.VsockPorts, KrunVsockPort{Port: networkBrokerVsockPort, Socket: brokerSocket, Listen: false})
+		launch.VsockPorts = append(launch.VsockPorts, KrunVsockPort{Port: networkBrokerVsockPort, Socket: brokerVsockSocket, Listen: true})
 		proxyEnv := append([]string(nil), spec.ProxyEnv...)
 		endpoint := resolveSupervisorGatewayEndpoint(d.host.GRPCEndpoint, driverConfig.GRPCEndpoint)
 		endpoint = resolveSupervisorGatewayEndpoint(endpoint, spec.GatewayURL)
@@ -535,6 +536,9 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 	if workerBrokerConfig != nil && brokerConfig != nil && brokerConfig.ControlSocket != "" {
 		workerBrokerConfig.ControlSocket = supervisorSocket
 	}
+	if workerBrokerConfig != nil && brokerConfig != nil && brokerConfig.Socket != "" {
+		workerBrokerConfig.Socket = brokerVsockSocket
+	}
 	isolationFunc := d.host.workerIsolation
 	if isolationFunc == nil {
 		isolationFunc = workerIsolationForChild
@@ -611,11 +615,14 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 	if err := d.waitForGuestOrExit(startupCtx, state.ID, guestSocket, done); err != nil {
 		return err
 	}
-	if brokerConfig != nil && brokerConfig.ControlSocket != "" {
+	if brokerConfig != nil {
 		forwardCtx, cancel := context.WithCancel(context.Background())
 		supervisorForwardCancel = cancel
 		d.supervisorForwarders[state.ID] = cancel
-		go forwardSupervisorControl(forwardCtx, supervisorSocket, brokerConfig.ControlSocket)
+		go forwardNetworkProxy(forwardCtx, brokerVsockSocket, brokerConfig.Socket)
+		if brokerConfig.ControlSocket != "" {
+			go forwardSupervisorControl(forwardCtx, supervisorSocket, brokerConfig.ControlSocket)
+		}
 	}
 	if len(proxyCABundle) > 0 {
 		if _, err := d.exchangeControl(startupCtx, state.ID, guestSocket, controlRequest{

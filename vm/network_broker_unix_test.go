@@ -321,11 +321,11 @@ func TestPrepareBrokerCredentialRejectsUnsafeStalePath(t *testing.T) {
 	}
 }
 
-func TestValidateWorkerNetworkBrokerRequiresGuestInitiatedMapping(t *testing.T) {
+func TestValidateWorkerNetworkBrokerRequiresHostListeningMapping(t *testing.T) {
 	config := workerConfig{
 		NetworkBroker: &networkBrokerConfig{Socket: "/tmp/broker.sock"},
 		Launch: KrunLaunchConfig{
-			VsockPorts: []KrunVsockPort{{Port: networkBrokerVsockPort, Socket: "/tmp/broker.sock", Listen: false}},
+			VsockPorts: []KrunVsockPort{{Port: networkBrokerVsockPort, Socket: "/tmp/broker.sock", Listen: true}},
 			Env:        []string{"CAUTEM_VM_NETWORK_BROKER_PORT=5501", "CAUTEM_VM_NETWORK_PROXY_PORT=3128"},
 		},
 	}
@@ -337,11 +337,11 @@ func TestValidateWorkerNetworkBrokerRequiresGuestInitiatedMapping(t *testing.T) 
 		t.Fatalf("unexpected guest-to-host vsock mapping error = %v", err)
 	}
 	config.Launch.VsockPorts = config.Launch.VsockPorts[:1]
-	config.Launch.VsockPorts[0].Listen = true
-	if err := validateWorkerNetworkBroker(config); err == nil || !strings.Contains(err.Error(), "guest-initiated") {
-		t.Fatalf("host-listening broker mapping error = %v", err)
-	}
 	config.Launch.VsockPorts[0].Listen = false
+	if err := validateWorkerNetworkBroker(config); err == nil || !strings.Contains(err.Error(), "host-listening") {
+		t.Fatalf("guest-initiated broker mapping error = %v", err)
+	}
+	config.Launch.VsockPorts[0].Listen = true
 	config.Launch.Env = []string{"CAUTEM_VM_NETWORK_BROKER_PORT=5501"}
 	if err := validateWorkerNetworkBroker(config); err == nil || !strings.Contains(err.Error(), "guest proxy port") {
 		t.Fatalf("missing proxy port error = %v", err)
@@ -351,12 +351,12 @@ func TestValidateWorkerNetworkBrokerRequiresGuestInitiatedMapping(t *testing.T) 
 func TestValidateWorkerRelayMappingsRequireExpectedVsockDirection(t *testing.T) {
 	config := workerConfig{
 		NetworkBroker: &networkBrokerConfig{
-			Socket: "/tmp/cautem-vm/proxy.sock", SSHSocket: "/tmp/cautem-vm/ssh.sock",
+			Socket: "/tmp/cautem-vm/proxy-vsock.sock", SSHSocket: "/tmp/cautem-vm/ssh.sock",
 			ControlSocket: "/tmp/cautem-vm/control.sock",
 		},
 		Launch: KrunLaunchConfig{
 			VsockPorts: []KrunVsockPort{
-				{Port: networkBrokerVsockPort, Socket: "/tmp/cautem-vm/proxy.sock", Listen: false},
+				{Port: networkBrokerVsockPort, Socket: "/tmp/cautem-vm/proxy-vsock.sock", Listen: true},
 				{Port: sshRelayVsockPort, Socket: "/tmp/cautem-vm/ssh.sock", Listen: true},
 				{Port: supervisorControlPort, Socket: "/tmp/cautem-vm/control.sock", Listen: true},
 			},

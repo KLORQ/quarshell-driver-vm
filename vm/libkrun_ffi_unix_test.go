@@ -4,7 +4,6 @@ package vm
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -122,7 +121,7 @@ func TestKrunGuestEnvironmentForcesPIDOneAndVsockMapping(t *testing.T) {
 	}
 }
 
-func TestKrunConfigMapsGuestInitiatedPolicyBrokerVsock(t *testing.T) {
+func TestKrunConfigMapsHostListeningPolicyBrokerVsock(t *testing.T) {
 	var calls []string
 	api := fakeLibKrunAPI(&calls)
 	api.addVsockPort = func(_ uint32, port uint32, socket string, listen bool) int32 {
@@ -130,46 +129,45 @@ func TestKrunConfigMapsGuestInitiatedPolicyBrokerVsock(t *testing.T) {
 		return 0
 	}
 	config := validKrunConfig()
-	config.VsockPorts = []KrunVsockPort{{Port: networkBrokerVsockPort, Socket: "/tmp/cautem-vm-proxy.sock", Listen: false}}
+	config.VsockPorts = []KrunVsockPort{{Port: networkBrokerVsockPort, Socket: "/tmp/cautem-vm-proxy.sock", Listen: true}}
 	guest, err := newKrunContext(api, config)
 	if err != nil {
 		t.Fatalf("newKrunContext() error = %v", err)
 	}
 	defer guest.Close()
-	want := "add_vsock_port:5501:/tmp/cautem-vm-proxy.sock:false"
+	want := "add_vsock_port:5501:/tmp/cautem-vm-proxy.sock:true"
 	if !containsCall(calls, want) {
-		t.Fatalf("guest-initiated policy broker mapping was not configured: calls=%v", calls)
+		t.Fatalf("host-listening policy broker mapping was not configured: calls=%v", calls)
 	}
-	config.VsockPorts = append(config.VsockPorts, KrunVsockPort{Port: networkBrokerVsockPort, Socket: "/tmp/other.sock", Listen: false})
+	config.VsockPorts = append(config.VsockPorts, KrunVsockPort{Port: networkBrokerVsockPort, Socket: "/tmp/other.sock", Listen: true})
 	if _, err := newKrunContext(api, config); err == nil || !strings.Contains(err.Error(), "configured more than once") {
 		t.Fatalf("duplicate vsock mapping error = %v", err)
 	}
 }
 
-func TestKrunConfigurePreservesGuestInitiatedHostListener(t *testing.T) {
+func TestKrunConfigurePreparesHostListeningVsockSocket(t *testing.T) {
 	root, err := os.MkdirTemp("/tmp", "vm-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(root)
 	socket := filepath.Join(root, "broker.sock")
-	listener, err := net.Listen("unix", socket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
 	config := validKrunConfig()
-	config.VsockPorts = []KrunVsockPort{{Port: networkBrokerVsockPort, Socket: socket, Listen: false}}
-	guest, err := newKrunContext(fakeLibKrunAPI(new([]string)), config)
+	config.VsockPorts = []KrunVsockPort{{Port: networkBrokerVsockPort, Socket: socket, Listen: true}}
+	var calls []string
+	api := fakeLibKrunAPI(&calls)
+	api.addVsockPort = func(_ uint32, port uint32, path string, listen bool) int32 {
+		calls = append(calls, fmt.Sprintf("add_vsock_port:%d:%s:%t", port, path, listen))
+		return 0
+	}
+	guest, err := newKrunContext(api, config)
 	if err != nil {
 		t.Fatalf("newKrunContext() error = %v", err)
 	}
 	defer guest.Close()
-	connection, err := net.Dial("unix", socket)
-	if err != nil {
-		t.Fatalf("guest-initiated host listener was unlinked during configure: %v", err)
+	if containsCall(calls, "add_vsock_port:5501:"+socket+":false") || !containsCall(calls, "add_vsock_port:5501:"+socket+":true") {
+		t.Fatalf("host-listening vsock endpoint was not configured: calls=%v", calls)
 	}
-	_ = connection.Close()
 }
 
 func containsCall(calls []string, want string) bool {
