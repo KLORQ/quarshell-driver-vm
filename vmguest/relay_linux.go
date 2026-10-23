@@ -17,13 +17,13 @@ import (
 )
 
 const (
-	sshRelaySocketPath         = "/cautem/ssh/sshd.sock"
-	supervisorControlPath      = "/run/cautem/supervisor-control.sock"
-	guestSSHSocket             = "/cautem/ssh/sshd.sock"
-	guestSSHBinary             = "/cautem/cautem-sshd"
-	guestInitBinary            = "/cautem/cautem-init"
-	guestPolicyFile            = "/cautem/policy.yaml"
-	guestSupervisorBinary      = "/cautem/cautem-supervisor"
+	sshRelaySocketPath         = "/quarshell/ssh/sshd.sock"
+	supervisorControlPath      = "/run/quarshell/supervisor-control.sock"
+	guestSSHSocket             = "/quarshell/ssh/sshd.sock"
+	guestSSHBinary             = "/quarshell/quarshell-sshd"
+	guestInitBinary            = "/quarshell/quarshell-init"
+	guestPolicyFile            = "/quarshell/policy.yaml"
+	guestSupervisorBinary      = "/quarshell/quarshell-supervisor"
 	sshRelayConnections        = 64
 	supervisorRelayConnections = 128
 )
@@ -37,8 +37,8 @@ type relayConfiguration struct {
 func relayConfigurationFromEnvironment() (relayConfiguration, error) {
 	var config relayConfiguration
 	for name, destination := range map[string]*uint32{
-		"CAUTEM_VM_SSH_RELAY_PORT":          &config.sshPort,
-		"CAUTEM_VM_SUPERVISOR_CONTROL_PORT": &config.controlPort,
+		"QUARSHELL_VM_SSH_RELAY_PORT":          &config.sshPort,
+		"QUARSHELL_VM_SUPERVISOR_CONTROL_PORT": &config.controlPort,
 	} {
 		value := strings.TrimSpace(os.Getenv(name))
 		_ = os.Unsetenv(name)
@@ -51,8 +51,8 @@ func relayConfigurationFromEnvironment() (relayConfiguration, error) {
 		}
 		*destination = uint32(port)
 	}
-	enabled := strings.TrimSpace(os.Getenv("CAUTEM_VM_SUPERVISOR_ENABLED"))
-	_ = os.Unsetenv("CAUTEM_VM_SUPERVISOR_ENABLED")
+	enabled := strings.TrimSpace(os.Getenv("QUARSHELL_VM_SUPERVISOR_ENABLED"))
+	_ = os.Unsetenv("QUARSHELL_VM_SUPERVISOR_ENABLED")
 	config.supervisor = enabled == "1"
 	if enabled != "" && enabled != "1" {
 		return relayConfiguration{}, fmt.Errorf("guest supervisor setting is invalid")
@@ -104,7 +104,7 @@ func startSupervisorControlBridge(port uint32) (string, error) {
 		_ = os.Remove(supervisorControlPath)
 		return "", fmt.Errorf("listen on guest supervisor control vsock port %d: %w", port, err)
 	}
-	fmt.Fprintf(os.Stderr, "cautem-init: supervisor control bridge listening on %s via host vsock port %d\n", supervisorControlPath, port)
+	fmt.Fprintf(os.Stderr, "quarshell-init: supervisor control bridge listening on %s via host vsock port %d\n", supervisorControlPath, port)
 	go serveUnixVsockBridge(listener, vsock, port, supervisorRelayConnections)
 	return supervisorControlPath, nil
 }
@@ -185,24 +185,24 @@ func serveUnixVsockBridge(listener, vsock net.Listener, port uint32, limit int) 
 		if err != nil {
 			return
 		}
-		fmt.Fprintf(os.Stderr, "cautem-init: supervisor control bridge accepted a local connection for vsock port %d\n", port)
+		fmt.Fprintf(os.Stderr, "quarshell-init: supervisor control bridge accepted a local connection for vsock port %d\n", port)
 		select {
 		case semaphore <- struct{}{}:
 			go func() {
 				defer func() { <-semaphore }()
-				fmt.Fprintf(os.Stderr, "cautem-init: accepting host vsock connection for supervisor control port %d\n", port)
+				fmt.Fprintf(os.Stderr, "quarshell-init: accepting host vsock connection for supervisor control port %d\n", port)
 				upstream, acceptErr := vsock.Accept()
 				if acceptErr != nil {
-					fmt.Fprintf(os.Stderr, "cautem-init: accept host vsock connection for supervisor control port %d: %v\n", port, acceptErr)
+					fmt.Fprintf(os.Stderr, "quarshell-init: accept host vsock connection for supervisor control port %d: %v\n", port, acceptErr)
 					_ = local.Close()
 					return
 				}
-				fmt.Fprintf(os.Stderr, "cautem-init: supervisor control bridge accepted host vsock port %d\n", port)
+				fmt.Fprintf(os.Stderr, "quarshell-init: supervisor control bridge accepted host vsock port %d\n", port)
 				bridgeSupervisorControlConnections(local, upstream)
-				fmt.Fprintf(os.Stderr, "cautem-init: supervisor control bridge closed for host vsock port %d\n", port)
+				fmt.Fprintf(os.Stderr, "quarshell-init: supervisor control bridge closed for host vsock port %d\n", port)
 			}()
 		default:
-			fmt.Fprintf(os.Stderr, "cautem-init: supervisor control bridge rejected a connection at its %d-connection limit\n", limit)
+			fmt.Fprintf(os.Stderr, "quarshell-init: supervisor control bridge rejected a connection at its %d-connection limit\n", limit)
 			_ = local.Close()
 		}
 	}
@@ -229,7 +229,7 @@ func bridgeSupervisorControlConnections(local, upstream net.Conn) {
 	}()
 	for range 2 {
 		result := <-done
-		fmt.Fprintf(os.Stderr, "cautem-init: supervisor control bridge %s finished after %d bytes: %v\n", result.direction, result.bytes, result.err)
+		fmt.Fprintf(os.Stderr, "quarshell-init: supervisor control bridge %s finished after %d bytes: %v\n", result.direction, result.bytes, result.err)
 	}
 }
 

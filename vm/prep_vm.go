@@ -23,10 +23,10 @@ import (
 )
 
 const (
-	guestImagePrepCacheVersion = "cautem-workload-prep-vm-v1"
+	guestImagePrepCacheVersion = "quarshell-workload-prep-vm-v1"
 	guestImagePrepTimeout      = 15 * time.Minute
 	guestImagePrepHeadroom     = uint64(1 << 30)
-	guestImagePayloadDir       = "cautem-image"
+	guestImagePayloadDir       = "quarshell-image"
 )
 
 func prepareRootfsTarWorkloadDiskInGuest(ctx context.Context, archiveFile *os.File, archivePath, cacheDir, formatterPath, guestAgentPath, guestUMOCIPath, bootstrapDisk string, host HostConfig, maxArchiveBytes, cacheMaxBytes int64) (preparedRootfsImage, string, error) {
@@ -105,7 +105,7 @@ func prepareOCIWorkloadDiskInGuest(ctx context.Context, resolved resolvedOCIImag
 		if err != nil {
 			return 0, fmt.Errorf("create staged OCI layout: %w", err)
 		}
-		if err := ociLayout.AppendImage(resolved.Image, layout.WithAnnotations(map[string]string{"org.opencontainers.image.ref.name": "cautem"})); err != nil {
+		if err := ociLayout.AppendImage(resolved.Image, layout.WithAnnotations(map[string]string{"org.opencontainers.image.ref.name": "quarshell"})); err != nil {
 			return 0, fmt.Errorf("stage verified OCI image layout: %w", err)
 		}
 		return directorySize(layoutDir)
@@ -275,10 +275,10 @@ func runGuestImagePrepVM(ctx context.Context, host HostConfig, bootstrapDisk, pr
 		RootDisk: bootstrapDisk, OverlayDisk: prepDisk,
 		VCPUs: host.VCPUs, MemoryMiB: host.MemoryMiB,
 		KrunLogLevel: configuredKrunLogLevel(host),
-		WorkDir:      "/", ExecPath: "/opt/cautem/vm-init",
+		WorkDir:      "/", ExecPath: "/opt/quarshell/vm-init",
 		Env: []string{
-			"CAUTEM_VM_INIT_MODE=image-prep",
-			"CAUTEM_VM_IMAGE_PREP_MAX_BYTES=" + strconv.FormatInt(rootfsExpandedMaxBytes+(128<<20), 10),
+			"QUARSHELL_VM_INIT_MODE=image-prep",
+			"QUARSHELL_VM_IMAGE_PREP_MAX_BYTES=" + strconv.FormatInt(rootfsExpandedMaxBytes+(128<<20), 10),
 		}, ConsolePath: consolePath,
 	}
 	config, err := workerConfigJSON(workerConfig{RuntimeDir: host.RuntimeDir, ControlSocket: controlSocket, Isolation: isolation, WatchParentLiveness: true, Launch: launch})
@@ -360,7 +360,7 @@ func verifyPreparedWorkloadExt4WithAgent(imagePath, formatterPath, guestAgentPat
 			return fmt.Errorf("debugfs verifier unavailable: install e2fsprogs")
 		}
 	}
-	for _, path := range []string{"/image-rootfs", "/image-rootfs/opt/cautem/bin/guest-agent"} {
+	for _, path := range []string{"/image-rootfs", "/image-rootfs/opt/quarshell/bin/guest-agent"} {
 		output, err := exec.Command(debugfs, "-R", "stat "+path, imagePath).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("debugfs stat %s: %w: %s", path, err, strings.TrimSpace(string(output)))
@@ -368,8 +368,8 @@ func verifyPreparedWorkloadExt4WithAgent(imagePath, formatterPath, guestAgentPat
 		text := string(output)
 		if !strings.Contains(text, "Inode:") {
 			rootListing, _ := exec.Command(debugfs, "-R", "ls -l /", imagePath).CombinedOutput()
-			payloadListing, _ := exec.Command(debugfs, "-R", "ls -l /config/cautem-image", imagePath).CombinedOutput()
-			prepLog, _ := exec.Command(debugfs, "-R", "cat /config/cautem-image/prep.log", imagePath).CombinedOutput()
+			payloadListing, _ := exec.Command(debugfs, "-R", "ls -l /config/quarshell-image", imagePath).CombinedOutput()
+			prepLog, _ := exec.Command(debugfs, "-R", "cat /config/quarshell-image/prep.log", imagePath).CombinedOutput()
 			return fmt.Errorf("ext4 image is missing %s: %s; root listing: %s; payload listing: %s; image-prep log: %s", path, strings.TrimSpace(text), strings.TrimSpace(string(rootListing)), strings.TrimSpace(string(payloadListing)), strings.TrimSpace(string(prepLog)))
 		}
 		if path == "/image-rootfs" && !strings.Contains(text, "Type: directory") {
@@ -390,7 +390,7 @@ func verifyPreparedWorkloadExt4WithAgent(imagePath, formatterPath, guestAgentPat
 		}
 		defer os.RemoveAll(tempDir)
 		dumped := filepath.Join(tempDir, "guest-agent")
-		if output, err := exec.Command(debugfs, "-R", "dump /image-rootfs/opt/cautem/bin/guest-agent "+dumped, imagePath).CombinedOutput(); err != nil {
+		if output, err := exec.Command(debugfs, "-R", "dump /image-rootfs/opt/quarshell/bin/guest-agent "+dumped, imagePath).CombinedOutput(); err != nil {
 			return fmt.Errorf("extract guest agent from prepared ext4: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 		actualDigest, err := hashRegularFile(dumped)

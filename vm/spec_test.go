@@ -89,10 +89,10 @@ func TestValidateSupportedSpecAllowsImplementedFields(t *testing.T) {
 	spec := vmCreateSpec{
 		Name: "sandbox", Image: "fixture:latest", Command: []string{"/bin/sh"},
 		Env: []string{"LANG=C"}, CPU: 2, MemoryBytes: 1 << 30,
-		DriverConfigJSON: `{"rootfs_tar_path":"/var/lib/cautem/rootfs.tar"}`,
-		ProxyBin:         "/usr/bin/cautem", PolicyPath: "/var/lib/cautem/policy.yaml", ProxyPort: 3128,
-		InitBin: "/usr/bin/cautem-init", SupervisorBin: "/usr/bin/cautem-supervisor",
-		EnableSSH: true, SSHBin: "/usr/bin/cautem-sshd", PersistVolume: true,
+		DriverConfigJSON: `{"rootfs_tar_path":"/var/lib/quarshell/rootfs.tar"}`,
+		ProxyBin:         "/usr/bin/quarshell", PolicyPath: "/var/lib/quarshell/policy.yaml", ProxyPort: 3128,
+		InitBin: "/usr/bin/quarshell-init", SupervisorBin: "/usr/bin/quarshell-supervisor",
+		EnableSSH: true, SSHBin: "/usr/bin/quarshell-sshd", PersistVolume: true,
 	}
 	if err := validateSupportedSpec(spec); err != nil {
 		t.Fatalf("validateSupportedSpec() error = %v", err)
@@ -101,8 +101,8 @@ func TestValidateSupportedSpecAllowsImplementedFields(t *testing.T) {
 
 func TestValidateSupportedSpecAllowsPolicyBrokerFields(t *testing.T) {
 	spec := vmCreateSpec{
-		Name: "sandbox", ProxyBin: "/usr/bin/cautem", PolicyPath: "/var/lib/cautem/policy.yaml",
-		ProxyEnv: []string{"CAUTEM_SANDBOX_TOKEN=secret"}, ProxyPort: 3128,
+		Name: "sandbox", ProxyBin: "/usr/bin/quarshell", PolicyPath: "/var/lib/quarshell/policy.yaml",
+		ProxyEnv: []string{"QUARSHELL_SANDBOX_TOKEN=secret"}, ProxyPort: 3128,
 	}
 	if err := validateSupportedSpec(spec); err != nil {
 		t.Fatalf("validateSupportedSpec() rejected policy broker fields: %v", err)
@@ -133,8 +133,8 @@ func TestGuestOverlayWorkspaceMapsToVMWithoutHostMount(t *testing.T) {
 
 func TestValidateNetworkBrokerSpecRequiresPairedConfigAndSafeEnvironment(t *testing.T) {
 	for _, spec := range []vmCreateSpec{
-		{ProxyBin: "/usr/bin/cautem"},
-		{PolicyPath: "/var/lib/cautem/policy.yaml"},
+		{ProxyBin: "/usr/bin/quarshell"},
+		{PolicyPath: "/var/lib/quarshell/policy.yaml"},
 		{ProxyEnv: []string{"TOKEN=secret"}},
 		{ProxyPort: 3128},
 	} {
@@ -148,14 +148,14 @@ func TestValidateNetworkBrokerSpecRequiresPairedConfigAndSafeEnvironment(t *test
 	if err := validateNetworkBrokerEnvironment([]string{"TOKEN=one", "TOKEN=two"}); err == nil || !strings.Contains(err.Error(), "duplicate key") {
 		t.Fatalf("duplicate broker environment error = %v", err)
 	}
-	if err := validateNetworkBrokerEnvironment([]string{"CAUTEM_HOST_PARENT_LIVENESS=0"}); err == nil || !strings.Contains(err.Error(), "lifecycle controls") {
+	if err := validateNetworkBrokerEnvironment([]string{"QUARSHELL_HOST_PARENT_LIVENESS=0"}); err == nil || !strings.Contains(err.Error(), "lifecycle controls") {
 		t.Fatalf("parent-liveness override error = %v", err)
 	}
 }
 
 func TestValidateNetworkBrokerSpecAcceptsPrivatePolicyAndExecutable(t *testing.T) {
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "cautem")
+	binary := filepath.Join(dir, "quarshell")
 	if err := os.WriteFile(binary, []byte("proxy executable"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestTokenAwareStartDoesNotRequireOptionalSSHAssets(t *testing.T) {
 		vmCreateSpec: vmCreateSpec{ProxyBin: "/usr/bin/quarshell-proxy", PolicyPath: "/etc/quarshell/policy.yaml"},
 		User:         "sandbox",
 	}
-	spec.SupervisorBin = "/usr/bin/cautem-supervisor"
+	spec.SupervisorBin = "/usr/bin/quarshell-supervisor"
 	if err := validateTokenAwareLaunchSpec(spec); err != nil {
 		t.Fatalf("token-aware start rejected a VM without optional SSH assets: %v", err)
 	}
@@ -197,10 +197,10 @@ func TestValidateGuestRuntimeAssetsRequiresCompleteSupervisorAndSSHContracts(t *
 		}
 		return path
 	}
-	proxy := makeExecutable("cautem")
-	init := makeExecutable("cautem-init")
-	supervisor := makeExecutable("cautem-supervisor")
-	sshd := makeExecutable("cautem-sshd")
+	proxy := makeExecutable("quarshell")
+	init := makeExecutable("quarshell-init")
+	supervisor := makeExecutable("quarshell-supervisor")
+	sshd := makeExecutable("quarshell-sshd")
 	policy := filepath.Join(dir, "policy.yaml")
 	if err := os.WriteFile(policy, []byte("version: 1\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -223,7 +223,7 @@ func TestValidateGuestRuntimeAssetsRequiresCompleteSupervisorAndSSHContracts(t *
 	}
 	base.Name = "sandbox"
 	base.Command = []string{"/bin/sh", "-c", "sleep infinity"}
-	base.DriverConfigJSON = `{"rootfs_tar_path":"/var/lib/cautem/rootfs.tar"}`
+	base.DriverConfigJSON = `{"rootfs_tar_path":"/var/lib/quarshell/rootfs.tar"}`
 	base.MainProcessRestartPolicy = "on-failure"
 	if err := New().validateCreateSpec(base); err != nil {
 		t.Fatalf("complete supervisor/SSH VM spec with restart policy rejected: %v", err)
@@ -243,7 +243,7 @@ func TestValidateSpecAllowsRootfsTarWithImageSelector(t *testing.T) {
 	spec := vmCreateSpec{
 		Name:             "sandbox",
 		Image:            "registry.example/team/requested:stable",
-		DriverConfigJSON: `{"rootfs_tar_path":"/var/lib/cautem/rootfs.tar"}`,
+		DriverConfigJSON: `{"rootfs_tar_path":"/var/lib/quarshell/rootfs.tar"}`,
 	}
 	if err := d.validateCreateSpec(spec); err != nil {
 		t.Fatalf("ValidateSpec() rejected OpenShell rootfs tar and image combination: %v", err)
@@ -280,9 +280,9 @@ func TestValidateGatewayRuntimePassesCompleteHostPreflight(t *testing.T) {
 		}
 	}
 	d := NewWithHostConfig(HostConfig{RuntimeDir: runtimeDir, KVMDevice: "/dev/null", WorkerPath: worker, GuestAgentPath: guest,
-		WorkerTeamID: "CAUTEMTEAM",
+		WorkerTeamID: "QUARSHELLTEAM",
 		workerSignatureVerifier: func(path, teamID string) error {
-			if path != worker || teamID != "CAUTEMTEAM" {
+			if path != worker || teamID != "QUARSHELLTEAM" {
 				return fmt.Errorf("unexpected signature verification inputs %q/%q", path, teamID)
 			}
 			return nil
@@ -305,7 +305,7 @@ func TestValidateGatewayWorkerTrustRequiresConfiguredIdentity(t *testing.T) {
 		}
 		return nil
 	}
-	if err := validateGatewayWorkerTrust(worker, HostConfig{workerSignatureVerifier: verify}); err == nil || !strings.Contains(err.Error(), "CAUTEM_VM_WORKER_SHA256") {
+	if err := validateGatewayWorkerTrust(worker, HostConfig{workerSignatureVerifier: verify}); err == nil || !strings.Contains(err.Error(), "QUARSHELL_VM_WORKER_SHA256") {
 		t.Fatalf("missing trusted worker identity error = %v", err)
 	}
 	if called {

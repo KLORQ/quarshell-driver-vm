@@ -15,7 +15,7 @@ import (
 )
 
 func TestParentLivenessWatchKillsWorkerWhenParentExits(t *testing.T) {
-	if os.Getenv("CAUTEM_VM_LIVENESS_TEST_CHILD") == "1" {
+	if os.Getenv("QUARSHELL_VM_LIVENESS_TEST_CHILD") == "1" {
 		stop, err := startParentLivenessWatch(3)
 		if err != nil {
 			fmt.Fprintln(os.Stdout, "watch error:", err)
@@ -31,7 +31,7 @@ func TestParentLivenessWatchKillsWorkerWhenParentExits(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := exec.Command(os.Args[0], "-test.run=^TestParentLivenessWatchKillsWorkerWhenParentExits$")
-	command.Env = append(os.Environ(), "CAUTEM_VM_LIVENESS_TEST_CHILD=1")
+	command.Env = append(os.Environ(), "QUARSHELL_VM_LIVENESS_TEST_CHILD=1")
 	command.ExtraFiles = []*os.File{reader}
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	stdout, err := command.StdoutPipe()
@@ -81,7 +81,7 @@ func TestParentLivenessWatchKillsWorkerWhenParentExits(t *testing.T) {
 }
 
 func TestParentLivenessStopReturnsWhileParentAlive(t *testing.T) {
-	if os.Getenv("CAUTEM_VM_LIVENESS_STOP_TEST_CHILD") == "1" {
+	if os.Getenv("QUARSHELL_VM_LIVENESS_STOP_TEST_CHILD") == "1" {
 		stop, err := startParentLivenessWatch(3)
 		if err != nil {
 			fmt.Fprintln(os.Stdout, "watch error:", err)
@@ -107,7 +107,7 @@ func TestParentLivenessStopReturnsWhileParentAlive(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := exec.Command(os.Args[0], "-test.run=^TestParentLivenessStopReturnsWhileParentAlive$")
-	command.Env = append(os.Environ(), "CAUTEM_VM_LIVENESS_STOP_TEST_CHILD=1")
+	command.Env = append(os.Environ(), "QUARSHELL_VM_LIVENESS_STOP_TEST_CHILD=1")
 	command.ExtraFiles = []*os.File{reader}
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	stdout, err := command.StdoutPipe()
@@ -165,7 +165,7 @@ func TestParentLivenessStopReturnsWhileParentAlive(t *testing.T) {
 }
 
 func TestParentLivenessStopRacingWithEOFIsBounded(t *testing.T) {
-	if os.Getenv("CAUTEM_VM_LIVENESS_EOF_RACE_CHILD") == "1" {
+	if os.Getenv("QUARSHELL_VM_LIVENESS_EOF_RACE_CHILD") == "1" {
 		stop, err := startParentLivenessWatch(3)
 		if err != nil {
 			fmt.Fprintln(os.Stdout, "watch error:", err)
@@ -190,7 +190,7 @@ func TestParentLivenessStopRacingWithEOFIsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := exec.Command(os.Args[0], "-test.run=^TestParentLivenessStopRacingWithEOFIsBounded$")
-	command.Env = append(os.Environ(), "CAUTEM_VM_LIVENESS_EOF_RACE_CHILD=1")
+	command.Env = append(os.Environ(), "QUARSHELL_VM_LIVENESS_EOF_RACE_CHILD=1")
 	command.ExtraFiles = []*os.File{reader}
 	command.Stdin = stdin
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -268,7 +268,7 @@ func TestParentLivenessStopRacingWithEOFIsBounded(t *testing.T) {
 }
 
 func TestParentLivenessWorkerCanReturnNormally(t *testing.T) {
-	if os.Getenv("CAUTEM_VM_LIVENESS_NORMAL_RETURN_CHILD") == "1" {
+	if os.Getenv("QUARSHELL_VM_LIVENESS_NORMAL_RETURN_CHILD") == "1" {
 		if _, err := startParentLivenessWatch(3); err != nil {
 			fmt.Fprintln(os.Stdout, "watch error:", err)
 			os.Exit(2)
@@ -284,7 +284,7 @@ func TestParentLivenessWorkerCanReturnNormally(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := exec.Command(os.Args[0], "-test.run=^TestParentLivenessWorkerCanReturnNormally$")
-	command.Env = append(os.Environ(), "CAUTEM_VM_LIVENESS_NORMAL_RETURN_CHILD=1")
+	command.Env = append(os.Environ(), "QUARSHELL_VM_LIVENESS_NORMAL_RETURN_CHILD=1")
 	command.Stdin = stdin
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	stdout, err := command.StdoutPipe()

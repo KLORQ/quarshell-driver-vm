@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	vmIsolationBackendName = "cautem/vm"
+	vmIsolationBackendName = "quarshell/vm"
 	vmIdentitySource       = "guest-supervisor-readiness-v1"
 )
 

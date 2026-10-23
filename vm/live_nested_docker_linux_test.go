@@ -23,15 +23,15 @@ import (
 // Linux MicroVM. It is deliberately separate from the regular workload profile:
 // the guest init starts dockerd before the unprivileged test workload runs.
 func TestLiveMicroVMNestedDocker(t *testing.T) {
-	if os.Getenv("CAUTEM_VM_DOCKER_ACCEPTANCE") != "1" {
-		t.Skip("set CAUTEM_VM_DOCKER_ACCEPTANCE=1 to run the Docker-in-MicroVM acceptance profile")
+	if os.Getenv("QUARSHELL_VM_DOCKER_ACCEPTANCE") != "1" {
+		t.Skip("set QUARSHELL_VM_DOCKER_ACCEPTANCE=1 to run the Docker-in-MicroVM acceptance profile")
 	}
 	if runtime.GOOS != "linux" {
 		t.Fatal("Docker-in-MicroVM acceptance requires a native Linux KVM host")
 	}
-	rootfsTar := requireLiveRegularFile(t, "CAUTEM_VM_TEST_ROOTFS_TAR")
-	guestAgent := requireLiveAsset(t, "CAUTEM_VM_TEST_GUEST_AGENT")
-	worker := requireLiveAsset(t, "CAUTEM_VM_WORKER")
+	rootfsTar := requireLiveRegularFile(t, "QUARSHELL_VM_TEST_ROOTFS_TAR")
+	guestAgent := requireLiveAsset(t, "QUARSHELL_VM_TEST_GUEST_AGENT")
+	worker := requireLiveAsset(t, "QUARSHELL_VM_WORKER")
 	runtimeDir := strings.TrimSpace(os.Getenv("OPENSHELL_VM_RUNTIME_DIR"))
 	if runtimeDir == "" {
 		t.Fatal("OPENSHELL_VM_RUNTIME_DIR is required")
@@ -39,7 +39,7 @@ func TestLiveMicroVMNestedDocker(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(runtimeDir, "libkrun.so")); err != nil {
 		t.Fatalf("Linux libkrun runtime is unavailable: %v", err)
 	}
-	formatter := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_E2FS_FORMATTER"))
+	formatter := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_E2FS_FORMATTER"))
 	if formatter == "" {
 		var err error
 		formatter, err = resolveExt4Formatter()
@@ -55,7 +55,7 @@ func TestLiveMicroVMNestedDocker(t *testing.T) {
 		RuntimeDir: runtimeDir,
 		StateDir:   stateDir, RootfsTarDir: filepath.Dir(filepath.Dir(rootfsTar)),
 		BootstrapImage: strings.TrimPrefix(registry.server.URL, "http://") + "/agent:latest",
-		KVMDevice:      strings.TrimSpace(os.Getenv("CAUTEM_KVM_DEVICE")),
+		KVMDevice:      strings.TrimSpace(os.Getenv("QUARSHELL_KVM_DEVICE")),
 		FormatterPath:  formatter, OverlaySizeBytes: defaultOverlaySize, ServiceDataDiskSizeBytes: 20 << 30,
 		GuestAgentPath: guestAgent, WorkerPath: worker,
 		VCPUs: 2, MemoryMiB: 3072,
@@ -84,11 +84,11 @@ func TestLiveMicroVMNestedDocker(t *testing.T) {
 	}
 	d := newLiveAcceptanceDriver(host)
 	handle, err := d.createSandbox(ctx, vmCreateSpec{
-		Name: "live-microvm-nested-docker", Image: "cautem-docker-test:28.0.0",
+		Name: "live-microvm-nested-docker", Image: "quarshell-docker-test:28.0.0",
 		Labels:           map[string]string{SandboxExtensionLabelPrefix + "live-nested-docker": "enabled"},
 		DriverConfigJSON: string(driverConfig),
 		Command:          []string{"/bin/sh", "-c", "while :; do sleep 1; done"},
-		ProxyBin:         proxyBinary, PolicyPath: policyPath, ProxyEnv: []string{"CAUTEM_VM_TEST_POLICY_PROXY_HELPER=1"},
+		ProxyBin:         proxyBinary, PolicyPath: policyPath, ProxyEnv: []string{"QUARSHELL_VM_TEST_POLICY_PROXY_HELPER=1"},
 	})
 	if err != nil {
 		t.Fatalf("create Docker-in-MicroVM guest: %v", err)
@@ -152,7 +152,7 @@ mkdir -p /run/docker-test /var/lib/docker-test /var/log
 # Docker CLI probes plugin metadata on every info request. Keep this daemon
 # smoke focused on the engine API instead of booting Compose/Buildx in KVM.
 for plugin_dir in /usr/local/libexec/docker/cli-plugins /usr/local/lib/docker/cli-plugins /usr/libexec/docker/cli-plugins /usr/lib/docker/cli-plugins; do
-  [ ! -d "$plugin_dir" ] || mv "$plugin_dir" "$plugin_dir.cautem-disabled"
+  [ ! -d "$plugin_dir" ] || mv "$plugin_dir" "$plugin_dir.quarshell-disabled"
 done
 store_fstype=$(awk '$2 == "/var/lib/docker-test" { print $3; exit }' /proc/mounts)
 [ "$store_fstype" = ext4 ] || { echo "Docker data root must use ext4, found $store_fstype" >&2; exit 1; }
@@ -172,13 +172,13 @@ mkdir -p /run/docker-test/containerd /run/docker-test/containerd-state /var/lib/
   --address "$containerd_socket" \
   --root=/var/lib/docker-test/containerd \
   --state=/run/docker-test/containerd-state \
-  >/var/log/cautem-containerd.log 2>&1 &
+  >/var/log/quarshell-containerd.log 2>&1 &
 containerd_pid=$!
 attempt=0
 while ! timeout 2 /usr/local/bin/ctr --address "$containerd_socket" version >/dev/null 2>&1; do
-  if ! kill -0 "$containerd_pid" 2>/dev/null; then echo "containerd exited before its API became ready" >&2; cat /var/log/cautem-containerd.log >&2; exit 1; fi
+  if ! kill -0 "$containerd_pid" 2>/dev/null; then echo "containerd exited before its API became ready" >&2; cat /var/log/quarshell-containerd.log >&2; exit 1; fi
   attempt=$((attempt + 1))
-  if [ "$attempt" -ge 120 ]; then echo "containerd API did not become ready" >&2; cat /var/log/cautem-containerd.log >&2; exit 1; fi
+  if [ "$attempt" -ge 120 ]; then echo "containerd API did not become ready" >&2; cat /var/log/quarshell-containerd.log >&2; exit 1; fi
   sleep 0.1
 done
 echo "containerd ready; starting dockerd" >&2
@@ -194,22 +194,22 @@ echo "containerd ready; starting dockerd" >&2
   --ip-forward=false \
   --userland-proxy=false \
   --storage-driver=overlay2 \
-  >/var/log/cautem-dockerd.log 2>&1 </dev/null &
+  >/var/log/quarshell-dockerd.log 2>&1 </dev/null &
 dockerd_pid=$!
 (
 set -eu
 attempt=0
 while [ ! -S /run/docker-test/docker.sock ]; do
-  if ! kill -0 "$containerd_pid" 2>/dev/null; then echo "containerd exited while dockerd was starting" >&2; cat /var/log/cautem-containerd.log >&2; exit 1; fi
-  if ! kill -0 "$dockerd_pid" 2>/dev/null; then echo "dockerd exited before its API socket became ready" >&2; cat /var/log/cautem-dockerd.log >&2; exit 1; fi
+  if ! kill -0 "$containerd_pid" 2>/dev/null; then echo "containerd exited while dockerd was starting" >&2; cat /var/log/quarshell-containerd.log >&2; exit 1; fi
+  if ! kill -0 "$dockerd_pid" 2>/dev/null; then echo "dockerd exited before its API socket became ready" >&2; cat /var/log/quarshell-dockerd.log >&2; exit 1; fi
   attempt=$((attempt + 1))
-  if [ "$attempt" -ge 600 ]; then cat /var/log/cautem-dockerd.log >&2; exit 1; fi
+  if [ "$attempt" -ge 600 ]; then cat /var/log/quarshell-dockerd.log >&2; exit 1; fi
   sleep 0.1
 done
 chmod 0660 /run/docker-test/docker.sock
 chown 0:1000 /run/docker-test/docker.sock
 ) >/dev/null 2>&1 </dev/null &
-) >/var/log/cautem-docker-bootstrap.log 2>&1 </dev/null &
+) >/var/log/quarshell-docker-bootstrap.log 2>&1 </dev/null &
 
 `), []byte(nestedEngineMetricsCollectorScript("/run/docker-test/resource-metrics"))...),
 	})
@@ -256,7 +256,7 @@ func assertNestedDockerReady(t *testing.T, ctx context.Context, d *Driver, id co
 		}
 	}
 	loaded, err := d.Exec(deadline, id, driver.ExecRequest{Argv: []string{
-		"/usr/local/bin/docker", "--host=unix:///run/docker-test/docker.sock", "load", "-i", "/opt/cautem-test/alpine-image.tar",
+		"/usr/local/bin/docker", "--host=unix:///run/docker-test/docker.sock", "load", "-i", "/opt/quarshell-test/alpine-image.tar",
 	}, NoLoginShell: true})
 	if err != nil || loaded.ExitCode != 0 {
 		t.Fatalf("load nested Docker test image: exit=%d stdout=%q stderr=%q err=%v", loaded.ExitCode, loaded.Stdout, loaded.Stderr, err)
@@ -300,9 +300,9 @@ func nestedDockerGuestLogs(d *Driver, id core.ID) string {
 	}
 	var logs strings.Builder
 	for _, path := range []string{
-		"/upper/var/log/cautem-docker-bootstrap.log",
-		"/upper/var/log/cautem-containerd.log",
-		"/upper/var/log/cautem-dockerd.log",
+		"/upper/var/log/quarshell-docker-bootstrap.log",
+		"/upper/var/log/quarshell-containerd.log",
+		"/upper/var/log/quarshell-dockerd.log",
 	} {
 		output, err := exec.Command(debugfs, "-R", "cat "+path, overlay).CombinedOutput()
 		if err != nil || len(output) == 0 {

@@ -5,6 +5,7 @@ package vmguest
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/KLORQ/quarshell-core/defaults"
 	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
 )
@@ -77,8 +79,8 @@ func Run() error {
 		return fmt.Errorf("listen on guest vsock: %w", err)
 	}
 	uid, gid := guestIdentity()
-	token := os.Getenv("CAUTEM_VM_CONTROL_TOKEN")
-	_ = os.Unsetenv("CAUTEM_VM_CONTROL_TOKEN")
+	token := os.Getenv("QUARSHELL_VM_CONTROL_TOKEN")
+	_ = os.Unsetenv("QUARSHELL_VM_CONTROL_TOKEN")
 	decodedToken, err := hex.DecodeString(token)
 	if err != nil || len(decodedToken) != 32 {
 		return fmt.Errorf("guest control token is missing or invalid")
@@ -87,7 +89,22 @@ func Run() error {
 		uid: uid, gid: gid, token: token, proxyURL: proxyURL,
 		supervisorSocket: supervisorSocket, supervisorEnabled: relayConfig.supervisor,
 		sshEnabled: relayConfig.sshPort != 0, terminals: make(map[string]*retainedTerminal),
+		mainProcesses: make(map[string]*retainedMainProcess),
 	}
+	localListener, err := listenGuestAgentSocket(server, token)
+	if err != nil {
+		return fmt.Errorf("listen on guest agent local socket: %w", err)
+	}
+	defer localListener.Close()
+	go func() {
+		for {
+			connection, acceptErr := localListener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go server.serve(connection)
+		}
+	}()
 	for {
 		connectionFD, _, err := unix.Accept4(fd, unix.SOCK_CLOEXEC)
 		if err != nil {
@@ -117,8 +134,8 @@ func (addr guestVsockAddr) Network() string { return "vsock" }
 func (addr guestVsockAddr) String() string  { return string(addr) }
 
 func guestIdentity() (uint32, uint32) {
-	uid, _ := strconv.ParseUint(os.Getenv("CAUTEM_VM_UID"), 10, 32)
-	gid, _ := strconv.ParseUint(os.Getenv("CAUTEM_VM_GID"), 10, 32)
+	uid, _ := strconv.ParseUint(os.Getenv("QUARSHELL_VM_UID"), 10, 32)
+	gid, _ := strconv.ParseUint(os.Getenv("QUARSHELL_VM_GID"), 10, 32)
 	if uid == 0 {
 		uid = 1000
 	}
@@ -129,39 +146,43 @@ func guestIdentity() (uint32, uint32) {
 }
 
 type controlServer struct {
-	uid               uint32
-	gid               uint32
-	token             string
-	proxyURL          string
-	supervisorSocket  string
-	supervisorEnabled bool
-	sshEnabled        bool
-	supervisorReady   string
-	workloadCommand   func([]string, bool) []string
-	authMu            sync.RWMutex
-	mu                sync.Mutex
-	job               *exec.Cmd
-	jobDone           chan struct{}
-	jobStopRequested  bool
-	workloadConfirmed bool
-	workloadStartGate *os.File
-	workloadUID       uint32
-	workloadGID       uint32
-	powerOffGuest     func() error
-	previousToken     string
-	rotationID        string
-	sshMu             sync.Mutex
-	sshDaemon         *exec.Cmd
-	terminalMu        sync.Mutex
-	terminals         map[string]*retainedTerminal
+	uid                  uint32
+	gid                  uint32
+	token                string
+	proxyURL             string
+	supervisorSocket     string
+	supervisorEnabled    bool
+	sshEnabled           bool
+	supervisorReady      string
+	workloadCommand      func([]string, bool) []string
+	authMu               sync.RWMutex
+	mu                   sync.Mutex
+	job                  *exec.Cmd
+	mainProcessSessionID string
+	jobDone              chan struct{}
+	jobStopRequested     bool
+	workloadConfirmed    bool
+	workloadStartGate    *os.File
+	workloadUID          uint32
+	workloadGID          uint32
+	powerOffGuest        func() error
+	previousToken        string
+	rotationID           string
+	tokenFile            string
+	sshMu                sync.Mutex
+	sshDaemon            *exec.Cmd
+	terminalMu           sync.Mutex
+	terminals            map[string]*retainedTerminal
+	mainProcessMu        sync.Mutex
+	mainProcesses        map[string]*retainedMainProcess
 }
 
 const execOutputLimit = 8 << 20
 
 const (
-	guestSupervisorReadyFile            = "/run/cautem/supervisor.ready"
+	guestSupervisorReadyFile            = "/run/quarshell/supervisor.ready"
 	guestSupervisorControlCredentialDir = SupervisorControlCredentialDir
-	guestSupervisorReadyEnv             = "CAUTEM_VM_SUPERVISOR_READY_FILE"
+	guestSupervisorReadyEnv             = "QUARSHELL_VM_SUPERVISOR_READY_FILE"
 	supervisorReadyContents             = "quarshell-supervisor-ready-v1\n"
 	// Keep this above the guest supervisor's 30-second host-control begin
 	// retry window so the supervisor can report its terminal startup error.
@@ -219,6 +240,19 @@ func (s *controlServer) serve(connection net.Conn) {
 		} else {
 			s.execStream(connection, request)
 		}
+		return
+	}
+	if request.Operation == "attach-main-process" {
+		if err := s.validateRequest(request); err != nil {
+			_ = writeResponse(connection, Response{Error: err.Error()})
+			return
+		}
+		if request.SessionID == "" {
+			s.mu.Lock()
+			request.SessionID = s.mainProcessSessionID
+			s.mu.Unlock()
+		}
+		s.attachMainProcess(connection, request.SessionID)
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -310,6 +344,13 @@ func (s *controlServer) dispatch(ctx context.Context, request Request) Response 
 		}
 		return Response{}
 	case "start-workload":
+		if request.SessionID == "" {
+			var err error
+			request.SessionID, err = newGuestMainSessionID()
+			if err != nil {
+				return Response{Error: fmt.Sprintf("generate canonical workload session ID: %v", err)}
+			}
+		}
 		if err := s.startWorkload(ctx, request); err != nil {
 			return Response{Error: err.Error()}
 		}
@@ -384,6 +425,9 @@ func (s *controlServer) rotateToken(request Request) error {
 	s.previousToken = s.token
 	s.token = request.NextAuthToken
 	s.rotationID = request.RotationID
+	if s.tokenFile != "" {
+		return writeGuestAgentToken(s.tokenFile, s.token)
+	}
 	return nil
 }
 
@@ -393,6 +437,76 @@ func validControlToken(token string) bool {
 	}
 	decoded, err := hex.DecodeString(token)
 	return err == nil && len(decoded) == 32
+}
+
+func listenGuestAgentSocket(server *controlServer, token string) (net.Listener, error) {
+	if server == nil || !validControlToken(token) {
+		return nil, fmt.Errorf("guest agent local socket requires a valid control token")
+	}
+	if err := os.MkdirAll(filepath.Dir(defaults.GuestAgentSocket), 0o700); err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(filepath.Dir(defaults.GuestAgentSocket), 0o700); err != nil {
+		return nil, err
+	}
+	if info, err := os.Lstat(defaults.GuestAgentSocket); err == nil {
+		if info.Mode()&os.ModeSocket == 0 {
+			return nil, fmt.Errorf("guest agent socket path exists and is not a socket")
+		}
+		if err := os.Remove(defaults.GuestAgentSocket); err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	server.tokenFile = defaults.GuestAgentTokenFile
+	if err := writeGuestAgentToken(server.tokenFile, token); err != nil {
+		return nil, err
+	}
+	listener, err := net.Listen("unix", defaults.GuestAgentSocket)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(defaults.GuestAgentSocket, 0o600); err != nil {
+		_ = listener.Close()
+		_ = os.Remove(defaults.GuestAgentSocket)
+		return nil, err
+	}
+	return listener, nil
+}
+
+func writeGuestAgentToken(path, token string) error {
+	if !validControlToken(token) {
+		return fmt.Errorf("guest agent control token is invalid")
+	}
+	temporary := path + ".tmp"
+	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := file.WriteString(token); err != nil {
+		_ = file.Close()
+		_ = os.Remove(temporary)
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		_ = os.Remove(temporary)
+		return err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	return os.Rename(temporary, path)
+}
+
+func newGuestMainSessionID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw[:]), nil
 }
 
 func validRotationID(id string) bool {
@@ -413,8 +527,15 @@ func (s *controlServer) startWorkload(ctx context.Context, request Request) erro
 	if request.TTY && strings.TrimSpace(request.SessionID) == "" {
 		return fmt.Errorf("TTY workload requires a retained session ID")
 	}
-	if request.AwaitMainProcessAttachment && !request.TTY {
-		return fmt.Errorf("awaiting a main-process attachment requires a TTY workload")
+	if request.SessionID == "" {
+		var err error
+		request.SessionID, err = newGuestMainSessionID()
+		if err != nil {
+			return fmt.Errorf("generate canonical workload session ID: %w", err)
+		}
+	}
+	if !validMainSessionID(request.SessionID) {
+		return fmt.Errorf("canonical workload requires a retained session ID")
 	}
 	restartPolicy, err := normalizeGuestRestartPolicy(request.RestartPolicy)
 	if err != nil {
@@ -456,24 +577,42 @@ func (s *controlServer) startWorkload(ctx context.Context, request Request) erro
 		}
 		command.ExtraFiles = []*os.File{startGateReader}
 		command.Env = mergeGuestEnvironment(command.Env,
-			"CAUTEM_POLICY="+guestPolicyFile,
-			"CAUTEM_SUPERVISOR_WAIT_FOR_WORKLOAD_READY=1",
-			"CAUTEM_SUPERVISOR_CONTROL_SOCKET="+s.supervisorSocket,
-			"CAUTEM_SUPERVISOR_CONTROL_CLIENT_CA="+guestSupervisorControlCredentialDir+"/ca.pem",
-			"CAUTEM_SUPERVISOR_CONTROL_CLIENT_CERT="+guestSupervisorControlCredentialDir+"/client.crt",
-			"CAUTEM_SUPERVISOR_CONTROL_CLIENT_KEY="+guestSupervisorControlCredentialDir+"/client.key",
-			"CAUTEM_MAIN_PROCESS_RESTART_POLICY="+restartPolicy,
+			"QUARSHELL_POLICY="+guestPolicyFile,
+			"QUARSHELL_SUPERVISOR_WAIT_FOR_WORKLOAD_READY=1",
+			"QUARSHELL_SUPERVISOR_CONTROL_SOCKET="+s.supervisorSocket,
+			"QUARSHELL_SUPERVISOR_CONTROL_CLIENT_CA="+guestSupervisorControlCredentialDir+"/ca.pem",
+			"QUARSHELL_SUPERVISOR_CONTROL_CLIENT_CERT="+guestSupervisorControlCredentialDir+"/client.crt",
+			"QUARSHELL_SUPERVISOR_CONTROL_CLIENT_KEY="+guestSupervisorControlCredentialDir+"/client.key",
+			"QUARSHELL_MAIN_PROCESS_RESTART_POLICY="+restartPolicy,
 			guestSupervisorReadyEnv+"="+readyPath,
 		)
 		if request.User != "" {
 			command.Env = mergeGuestEnvironment(command.Env, "OPENSHELL_OCI_IMAGE_USER="+request.User)
 		}
-		command.Env = mergeGuestEnvironment(command.Env, "CAUTEM_SUPERVISOR_START_GATE_FD=3")
+		command.Env = mergeGuestEnvironment(command.Env, "QUARSHELL_SUPERVISOR_START_GATE_FD=3")
 	}
 	command.Dir = guestWorkdir(request.WorkDir)
+	var mainStdin, childStdin, mainStdout, childStdout, mainStderr, childStderr *os.File
 	if !request.TTY {
-		command.Stdout = os.Stdout
-		command.Stderr = os.Stderr
+		childStdin, mainStdin, err = os.Pipe()
+		if err != nil {
+			return fmt.Errorf("create canonical workload stdin: %w", err)
+		}
+		mainStdout, childStdout, err = os.Pipe()
+		if err != nil {
+			_ = mainStdin.Close()
+			_ = childStdin.Close()
+			return fmt.Errorf("create canonical workload stdout: %w", err)
+		}
+		mainStderr, childStderr, err = os.Pipe()
+		if err != nil {
+			_ = mainStdin.Close()
+			_ = childStdin.Close()
+			_ = mainStdout.Close()
+			_ = childStdout.Close()
+			return fmt.Errorf("create canonical workload stderr: %w", err)
+		}
+		command.Stdin, command.Stdout, command.Stderr = childStdin, childStdout, childStderr
 		command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	}
 	var workloadUID, workloadGID uint32
@@ -515,6 +654,11 @@ func (s *controlServer) startWorkload(ctx context.Context, request Request) erro
 		err = command.Start()
 	}
 	if err != nil {
+		for _, file := range []*os.File{mainStdin, childStdin, mainStdout, childStdout, mainStderr, childStderr} {
+			if file != nil {
+				_ = file.Close()
+			}
+		}
 		if startGateReader != nil {
 			_ = startGateReader.Close()
 		}
@@ -526,7 +670,13 @@ func (s *controlServer) startWorkload(ctx context.Context, request Request) erro
 	if startGateReader != nil {
 		_ = startGateReader.Close()
 	}
+	if !request.TTY {
+		_ = childStdin.Close()
+		_ = childStdout.Close()
+		_ = childStderr.Close()
+	}
 	s.job = command
+	s.mainProcessSessionID = request.SessionID
 	s.workloadStartGate = startGateWriter
 	done := make(chan struct{})
 	s.jobDone = done
@@ -549,10 +699,14 @@ func (s *controlServer) startWorkload(ctx context.Context, request Request) erro
 		s.mu.Unlock()
 		if naturalExit {
 			if request.AwaitMainProcessAttachment {
-				s.waitForTerminalAttachment(request.SessionID)
+				if request.TTY {
+					s.waitForTerminalAttachment(request.SessionID)
+				} else {
+					s.waitForMainProcessAttachment(request.SessionID)
+				}
 			}
 			if err := s.powerOffAfterWorkloadExit(); err != nil {
-				fmt.Fprintf(os.Stderr, "cautem-vm-guest-agent: power off after workload exit: %v\n", err)
+				fmt.Fprintf(os.Stderr, "quarshell-vm-guest-agent: power off after workload exit: %v\n", err)
 			}
 		}
 	}
@@ -579,10 +733,16 @@ func (s *controlServer) startWorkload(ctx context.Context, request Request) erro
 			return retainErr
 		}
 	} else {
-		go func() {
+		if err := s.retainMainProcess(request.SessionID, command, mainStdin, mainStdout, mainStderr, request.AwaitMainProcessAttachment, onExit); err != nil {
+			_ = mainStdin.Close()
+			_ = mainStdout.Close()
+			_ = mainStderr.Close()
+			_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 			_ = command.Wait()
-			onExit()
-		}()
+			s.job = nil
+			s.jobDone = nil
+			return err
+		}
 	}
 	if s.supervisorEnabled {
 		var err error
@@ -769,7 +929,7 @@ func (s *controlServer) startSSHDaemon() error {
 		"--init", guestInitBinary,
 		"--workdir", "/sandbox",
 	)
-	command.Env = mergeGuestEnvironment(guestEnvironmentForWorkload(nil, s.proxyURL), "CAUTEM_POLICY="+guestPolicyFile)
+	command.Env = mergeGuestEnvironment(guestEnvironmentForWorkload(nil, s.proxyURL), "QUARSHELL_POLICY="+guestPolicyFile)
 	command.Dir = "/"
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
@@ -1042,7 +1202,7 @@ func (s *controlServer) exec(ctx context.Context, request Request) Response {
 	command := exec.Command(argv[0], argv[1:]...)
 	command.Env = guestEnvironmentForWorkload(request.Env, s.proxyURL)
 	if s.supervisorEnabled {
-		command.Env = mergeGuestEnvironment(command.Env, "CAUTEM_POLICY="+guestPolicyFile)
+		command.Env = mergeGuestEnvironment(command.Env, "QUARSHELL_POLICY="+guestPolicyFile)
 		if request.User != "" {
 			command.Env = mergeGuestEnvironment(command.Env, "OPENSHELL_OCI_IMAGE_USER="+request.User)
 		}
@@ -1118,7 +1278,7 @@ func (s *controlServer) execTerminal(connection net.Conn, request Request) {
 	command := exec.Command(argv[0], argv[1:]...)
 	command.Env = guestEnvironmentForWorkload(request.Env, s.proxyURL)
 	if s.supervisorEnabled {
-		command.Env = mergeGuestEnvironment(command.Env, "CAUTEM_POLICY="+guestPolicyFile)
+		command.Env = mergeGuestEnvironment(command.Env, "QUARSHELL_POLICY="+guestPolicyFile)
 		if request.User != "" {
 			command.Env = mergeGuestEnvironment(command.Env, "OPENSHELL_OCI_IMAGE_USER="+request.User)
 		}
@@ -1272,7 +1432,7 @@ func (s *controlServer) execStream(connection net.Conn, request Request) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.Env = guestEnvironmentForWorkload(request.Env, s.proxyURL)
 	if s.supervisorEnabled {
-		command.Env = mergeGuestEnvironment(command.Env, "CAUTEM_POLICY="+guestPolicyFile)
+		command.Env = mergeGuestEnvironment(command.Env, "QUARSHELL_POLICY="+guestPolicyFile)
 		if request.User != "" {
 			command.Env = mergeGuestEnvironment(command.Env, "OPENSHELL_OCI_IMAGE_USER="+request.User)
 		}
@@ -1642,7 +1802,7 @@ func guestEnvironmentForWorkload(overrides []string, proxyURL string) []string {
 	}
 	for _, entry := range overrides {
 		key, value, ok := strings.Cut(entry, "=")
-		if !ok || key == "" || strings.HasPrefix(key, "CAUTEM_VM_") || isGuestIdentityEnvironment(key) {
+		if !ok || key == "" || strings.HasPrefix(key, "QUARSHELL_VM_") || isGuestIdentityEnvironment(key) {
 			continue
 		}
 		values[key] = value

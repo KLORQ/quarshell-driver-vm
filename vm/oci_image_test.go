@@ -362,7 +362,7 @@ func TestPrepareOCIWorkloadDiskPlacesGuestRootAtImageRootfs(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(workloadRoot, "etc", "workload-marker")); err != nil || string(got) != "workload" {
 		t.Fatalf("workload root marker = %q, err=%v", got, err)
 	}
-	for _, asset := range []string{"opt/cautem/bin/guest-agent", "opt/cautem/vm-init"} {
+	for _, asset := range []string{"opt/quarshell/bin/guest-agent", "opt/quarshell/vm-init"} {
 		if _, err := os.Stat(filepath.Join(workloadRoot, asset)); err != nil {
 			t.Errorf("workload disk missing runtime asset %s: %v", asset, err)
 		}
@@ -412,18 +412,18 @@ func configureTestDockerCredentialHelper(t *testing.T, registryHost, username, p
 set -eu
 [ "$#" -eq 1 ] && [ "$1" = "get" ]
 IFS= read -r server || true
-[ "$server" = "$CAUTEM_TEST_CREDENTIAL_SERVER" ]
-printf '%s\n' "$server" >> "$CAUTEM_TEST_CREDENTIAL_MARKER"
-printf '{"Username":"%s","Secret":"%s"}\n' "$CAUTEM_TEST_CREDENTIAL_USERNAME" "$CAUTEM_TEST_CREDENTIAL_SECRET"
+[ "$server" = "$QUARSHELL_TEST_CREDENTIAL_SERVER" ]
+printf '%s\n' "$server" >> "$QUARSHELL_TEST_CREDENTIAL_MARKER"
+printf '{"Username":"%s","Secret":"%s"}\n' "$QUARSHELL_TEST_CREDENTIAL_USERNAME" "$QUARSHELL_TEST_CREDENTIAL_SECRET"
 `)
 	if err := os.WriteFile(helper, contents, 0o700); err != nil {
 		t.Fatalf("write Docker credential-helper executable: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CAUTEM_TEST_CREDENTIAL_SERVER", registryHost)
-	t.Setenv("CAUTEM_TEST_CREDENTIAL_MARKER", marker)
-	t.Setenv("CAUTEM_TEST_CREDENTIAL_USERNAME", username)
-	t.Setenv("CAUTEM_TEST_CREDENTIAL_SECRET", password)
+	t.Setenv("QUARSHELL_TEST_CREDENTIAL_SERVER", registryHost)
+	t.Setenv("QUARSHELL_TEST_CREDENTIAL_MARKER", marker)
+	t.Setenv("QUARSHELL_TEST_CREDENTIAL_USERNAME", username)
+	t.Setenv("QUARSHELL_TEST_CREDENTIAL_SECRET", password)
 	return marker
 }
 

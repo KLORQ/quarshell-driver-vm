@@ -22,15 +22,15 @@ import (
 // TestLiveMicroVMNestedPodman boots a trusted rootful Podman 6 API service in
 // a disposable MicroVM and verifies ext4 storage and cgroup enforcement.
 func TestLiveMicroVMNestedPodman(t *testing.T) {
-	if os.Getenv("CAUTEM_VM_PODMAN_ACCEPTANCE") != "1" {
-		t.Skip("set CAUTEM_VM_PODMAN_ACCEPTANCE=1 to run the Podman-in-MicroVM acceptance profile")
+	if os.Getenv("QUARSHELL_VM_PODMAN_ACCEPTANCE") != "1" {
+		t.Skip("set QUARSHELL_VM_PODMAN_ACCEPTANCE=1 to run the Podman-in-MicroVM acceptance profile")
 	}
 	runLiveMicroVMNestedPodman(t, false)
 }
 
 func TestLiveMicroVMNestedPodmanRootless(t *testing.T) {
-	if os.Getenv("CAUTEM_VM_PODMAN_ROOTLESS_ACCEPTANCE") != "1" {
-		t.Skip("set CAUTEM_VM_PODMAN_ROOTLESS_ACCEPTANCE=1 to run rootless Podman-in-MicroVM acceptance")
+	if os.Getenv("QUARSHELL_VM_PODMAN_ROOTLESS_ACCEPTANCE") != "1" {
+		t.Skip("set QUARSHELL_VM_PODMAN_ROOTLESS_ACCEPTANCE=1 to run rootless Podman-in-MicroVM acceptance")
 	}
 	runLiveMicroVMNestedPodman(t, true)
 }
@@ -40,8 +40,8 @@ func runLiveMicroVMNestedPodman(t *testing.T, rootless bool) {
 	if runtime.GOOS != "linux" {
 		t.Fatal("Podman-in-MicroVM acceptance requires a native Linux KVM host")
 	}
-	rootfsTar := requireLiveRegularFile(t, "CAUTEM_VM_TEST_ROOTFS_TAR")
-	bootstrapRootfsTar := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_BOOTSTRAP_ROOTFS_TAR"))
+	rootfsTar := requireLiveRegularFile(t, "QUARSHELL_VM_TEST_ROOTFS_TAR")
+	bootstrapRootfsTar := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_BOOTSTRAP_ROOTFS_TAR"))
 	if bootstrapRootfsTar == "" {
 		bootstrapRootfsTar = rootfsTar
 	}
@@ -49,8 +49,8 @@ func runLiveMicroVMNestedPodman(t *testing.T, rootless bool) {
 	if err != nil || !bootstrapInfo.Mode().IsRegular() || bootstrapInfo.Size() == 0 {
 		t.Fatalf("Podman bootstrap rootfs must be a non-empty regular file: %q", bootstrapRootfsTar)
 	}
-	guestAgent := requireLiveAsset(t, "CAUTEM_VM_TEST_GUEST_AGENT")
-	worker := requireLiveAsset(t, "CAUTEM_VM_WORKER")
+	guestAgent := requireLiveAsset(t, "QUARSHELL_VM_TEST_GUEST_AGENT")
+	worker := requireLiveAsset(t, "QUARSHELL_VM_WORKER")
 	runtimeDir := strings.TrimSpace(os.Getenv("OPENSHELL_VM_RUNTIME_DIR"))
 	if runtimeDir == "" {
 		t.Fatal("OPENSHELL_VM_RUNTIME_DIR is required")
@@ -58,7 +58,7 @@ func runLiveMicroVMNestedPodman(t *testing.T, rootless bool) {
 	if _, err := os.Stat(filepath.Join(runtimeDir, "libkrun.so")); err != nil {
 		t.Fatalf("Linux libkrun runtime is unavailable: %v", err)
 	}
-	formatter := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_E2FS_FORMATTER"))
+	formatter := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_E2FS_FORMATTER"))
 	if formatter == "" {
 		var err error
 		formatter, err = resolveExt4Formatter()
@@ -74,7 +74,7 @@ func runLiveMicroVMNestedPodman(t *testing.T, rootless bool) {
 		RuntimeDir: runtimeDir,
 		StateDir:   stateDir, RootfsTarDir: filepath.Dir(filepath.Dir(rootfsTar)),
 		BootstrapImage: strings.TrimPrefix(registry.server.URL, "http://") + "/agent:latest",
-		KVMDevice:      strings.TrimSpace(os.Getenv("CAUTEM_KVM_DEVICE")),
+		KVMDevice:      strings.TrimSpace(os.Getenv("QUARSHELL_KVM_DEVICE")),
 		FormatterPath:  formatter, OverlaySizeBytes: defaultOverlaySize, ServiceDataDiskSizeBytes: 20 << 30,
 		GuestAgentPath: guestAgent, WorkerPath: worker,
 		VCPUs: 2, MemoryMiB: 2048,
@@ -103,11 +103,11 @@ func runLiveMicroVMNestedPodman(t *testing.T, rootless bool) {
 	}
 	d := newLiveAcceptanceDriver(host)
 	handle, err := d.createSandbox(ctx, vmCreateSpec{
-		Name: "live-microvm-nested-podman", Image: "cautem-podman-test:6.1.4",
+		Name: "live-microvm-nested-podman", Image: "quarshell-podman-test:6.1.4",
 		Labels:           map[string]string{SandboxExtensionLabelPrefix + podmanExtensionKey(rootless): "enabled"},
 		DriverConfigJSON: string(driverConfig),
 		Command:          []string{"/bin/sh", "-c", "while :; do sleep 1; done"},
-		ProxyBin:         proxyBinary, PolicyPath: policyPath, ProxyEnv: []string{"CAUTEM_VM_TEST_POLICY_PROXY_HELPER=1"},
+		ProxyBin:         proxyBinary, PolicyPath: policyPath, ProxyEnv: []string{"QUARSHELL_VM_TEST_POLICY_PROXY_HELPER=1"},
 	})
 	if err != nil {
 		t.Fatalf("create Podman-in-MicroVM guest: %v", err)
@@ -162,7 +162,7 @@ func TestNestedPodmanInitExtensionScriptSyntax(t *testing.T) {
 				if !strings.Contains(init, "runuser -u sandbox") {
 					t.Fatal("rootless init script does not drop privileges to sandbox user")
 				}
-				if !strings.Contains(init, "cgroup.subtree_control") || !strings.Contains(init, "cautem-podman-rootless/api/cgroup.procs") {
+				if !strings.Contains(init, "cgroup.subtree_control") || !strings.Contains(init, "quarshell-podman-rootless/api/cgroup.procs") {
 					t.Fatal("rootless init script does not prepare a delegated cgroup v2 subtree")
 				}
 				if !strings.Contains(init, "echo starting rootless Podman service; exec runuser") {
@@ -186,7 +186,7 @@ func (extension nestedPodmanInitExtension) ConfigureLaunch(_ context.Context, _ 
 	script := string(append([]byte(`#!/bin/sh
 set -eu
 mkdir -p /run/podman-test /var/log /var/lib/docker-test/containers
-exec >>/var/log/cautem-podman-bootstrap.log 2>&1
+exec >>/var/log/quarshell-podman-bootstrap.log 2>&1
 trap 'status=$?; echo "podman bootstrap exited: $status"; exit "$status"' EXIT
 echo "starting Podman MicroVM bootstrap"
 test "$(/usr/bin/podman --version)" = "podman version 6.1.4" || { echo "expected Podman 6.1.4" >&2; exit 1; }
@@ -206,13 +206,13 @@ runroot = "/run/podman-test/runroot"
 graphroot = "/var/lib/docker-test/containers"
 EOF
 chmod 0644 /run/podman-test/storage.conf
-CONTAINERS_STORAGE_CONF=/run/podman-test/storage.conf /usr/bin/podman system service --time=0 unix:///run/podman-test/podman.sock >/var/log/cautem-podman.log 2>&1 &
+CONTAINERS_STORAGE_CONF=/run/podman-test/storage.conf /usr/bin/podman system service --time=0 unix:///run/podman-test/podman.sock >/var/log/quarshell-podman.log 2>&1 &
 (
 set -eu
 attempt=0
 while [ ! -S /run/podman-test/podman.sock ]; do
   attempt=$((attempt + 1))
-  if [ "$attempt" -ge 300 ]; then cat /var/log/cautem-podman.log >&2; exit 1; fi
+  if [ "$attempt" -ge 300 ]; then cat /var/log/quarshell-podman.log >&2; exit 1; fi
   sleep 0.1
 done
 chmod 0660 /run/podman-test/podman.sock
@@ -230,10 +230,10 @@ for controller in cpu memory pids; do
   grep -qw "$controller" /sys/fs/cgroup/cgroup.controllers || { echo "guest cgroup v2 controller unavailable: $controller" >&2; exit 1; }
 done
 printf '%s\n' '+cpu +memory +pids' >/sys/fs/cgroup/cgroup.subtree_control
-mkdir -p /sys/fs/cgroup/cautem-podman-rootless/api
-printf '%s\n' '+cpu +memory +pids' >/sys/fs/cgroup/cautem-podman-rootless/cgroup.subtree_control
-chown 1000:1000 /sys/fs/cgroup/cautem-podman-rootless
-chown 1000:1000 /sys/fs/cgroup/cautem-podman-rootless/cgroup.procs /sys/fs/cgroup/cautem-podman-rootless/cgroup.subtree_control
+mkdir -p /sys/fs/cgroup/quarshell-podman-rootless/api
+printf '%s\n' '+cpu +memory +pids' >/sys/fs/cgroup/quarshell-podman-rootless/cgroup.subtree_control
+chown 1000:1000 /sys/fs/cgroup/quarshell-podman-rootless
+chown 1000:1000 /sys/fs/cgroup/quarshell-podman-rootless/cgroup.procs /sys/fs/cgroup/quarshell-podman-rootless/cgroup.subtree_control
 mkdir -p /home/sandbox /run/user/1000 /var/lib/docker-test/rootless/containers
 chmod 0711 /var/lib/docker-test
 chown -R 1000:1000 /home/sandbox /run/user/1000 /var/lib/docker-test/rootless
@@ -252,7 +252,7 @@ mkdir -p /home/sandbox/.config/containers
 cat >/home/sandbox/.config/containers/containers.conf <<'EOF'
 [engine]
 cgroup_manager = "cgroupfs"
-cgroup_parent = "/cautem-podman-rootless"
+cgroup_parent = "/quarshell-podman-rootless"
 events_logger = "file"
 EOF
 chown -R 1000:1000 /home/sandbox/.config
@@ -265,7 +265,7 @@ echo "rootless Podman graphroot prepared on ext4"
 			"runuser -u sandbox -- /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/home/sandbox XDG_RUNTIME_DIR=/run/user/1000 CONTAINERS_STORAGE_CONF=/run/user/1000/storage.conf /usr/bin/podman system service --time=0 unix:///run/user/1000/podman.sock", 1)
 		script = strings.Replace(script,
 			"runuser -u sandbox -- /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/home/sandbox XDG_RUNTIME_DIR=/run/user/1000 CONTAINERS_STORAGE_CONF=/run/user/1000/storage.conf /usr/bin/podman system service --time=0 unix:///run/user/1000/podman.sock",
-			"/bin/sh -c 'echo \"$$\" >/sys/fs/cgroup/cautem-podman-rootless/api/cgroup.procs; echo starting rootless Podman service; exec runuser -u sandbox -- /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/home/sandbox XDG_RUNTIME_DIR=/run/user/1000 CONTAINERS_STORAGE_CONF=/run/user/1000/storage.conf /usr/bin/podman system service --time=0 unix:///run/user/1000/podman.sock'", 1)
+			"/bin/sh -c 'echo \"$$\" >/sys/fs/cgroup/quarshell-podman-rootless/api/cgroup.procs; echo starting rootless Podman service; exec runuser -u sandbox -- /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/home/sandbox XDG_RUNTIME_DIR=/run/user/1000 CONTAINERS_STORAGE_CONF=/run/user/1000/storage.conf /usr/bin/podman system service --time=0 unix:///run/user/1000/podman.sock'", 1)
 		script = strings.Replace(script, "/run/podman-test/podman.sock", "/run/user/1000/podman.sock", 2)
 		script = strings.Replace(script, `chown 0:1000 "$socket"`, `:`, 1)
 	}
@@ -316,7 +316,7 @@ func assertNestedPodmanReady(t *testing.T, ctx context.Context, d *Driver, id co
 		}
 	}
 	loaded, err := d.Exec(deadline, id, driver.ExecRequest{Argv: []string{
-		"/usr/bin/env", "CONTAINER_HOST=" + socket, "/usr/bin/podman", "load", "-i", "/opt/cautem-test/alpine-image.tar",
+		"/usr/bin/env", "CONTAINER_HOST=" + socket, "/usr/bin/podman", "load", "-i", "/opt/quarshell-test/alpine-image.tar",
 	}, NoLoginShell: true})
 	if err != nil || loaded.ExitCode != 0 {
 		t.Fatalf("load nested Podman test image: exit=%d stdout=%q stderr=%q err=%v", loaded.ExitCode, loaded.Stdout, loaded.Stderr, err)
@@ -341,7 +341,7 @@ func assertNestedPodmanReady(t *testing.T, ctx context.Context, d *Driver, id co
 	resourceProbe := `printf '%s %s %s' "$(cat /sys/fs/cgroup/memory.max)" "$(cat /sys/fs/cgroup/cpu.max)" "$(cat /sys/fs/cgroup/pids.max)"`
 	resourceRunArgs := []string{"--memory=128m", "--cpus=1", "--pids-limit=32"}
 	if rootless {
-		resourceRunArgs = append([]string{"--cgroup-parent=/cautem-podman-rootless"}, resourceRunArgs...)
+		resourceRunArgs = append([]string{"--cgroup-parent=/quarshell-podman-rootless"}, resourceRunArgs...)
 		resourceProbe = `set -eu
 probe() { if [ -r "$1" ]; then cat "$1"; else printf unavailable; fi; }
 cpu_limit=$(probe /sys/fs/cgroup/cpu.max)
@@ -363,7 +363,7 @@ printf 'memory=%s cpu=%s pids=%s' "$(probe /sys/fs/cgroup/memory.max)" "$cpu_lim
 	}
 	if !limitsEnforced {
 		detail := fmt.Sprintf("exit=%d stdout=%q stderr=%q err=%v", limits.ExitCode, strings.TrimSpace(string(limits.Stdout)), strings.TrimSpace(string(limits.Stderr)), err)
-		if rootless && os.Getenv("CAUTEM_VM_REQUIRE_ROOTLESS_CGROUP") != "1" {
+		if rootless && os.Getenv("QUARSHELL_VM_REQUIRE_ROOTLESS_CGROUP") != "1" {
 			t.Logf("rootless Podman API and keep-id smoke passed; resource limits are unavailable without guest cgroup delegation (%s)", detail)
 			return
 		}
@@ -391,8 +391,8 @@ func nestedPodmanGuestLogs(d *Driver, id core.ID) string {
 	}
 	var logs strings.Builder
 	for _, path := range []string{
-		"/upper/var/log/cautem-podman-bootstrap.log",
-		"/upper/var/log/cautem-podman.log",
+		"/upper/var/log/quarshell-podman-bootstrap.log",
+		"/upper/var/log/quarshell-podman.log",
 	} {
 		output, err := exec.Command(debugfs, "-R", "cat "+path, overlay).CombinedOutput()
 		if err != nil || len(output) == 0 {

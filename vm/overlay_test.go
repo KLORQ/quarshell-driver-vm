@@ -135,9 +135,9 @@ func TestCreateSandboxOverlayWithDropinsFormatsPrivateExecutableHooks(t *testing
 	script := "#!/bin/sh\n" +
 		"src=; image=; previous=; for arg do if [ \"$previous\" = -d ]; then src=$arg; fi; previous=$arg; image=$arg; done\n" +
 		"printf '%s\\n' \"$src\" \"$image\" > '" + output + "'\n" +
-		"test -f \"$src/upper/opt/cautem/init.d/10-test\"\n" +
-		"test -x \"$src/upper/opt/cautem/init.d/10-test\"\n" +
-		"test \"$(cat \"$src/upper/opt/cautem/init.d/10-test\")\" = '#!/bin/sh\\nprintf ready\\n'\n" +
+		"test -f \"$src/upper/opt/quarshell/init.d/10-test\"\n" +
+		"test -x \"$src/upper/opt/quarshell/init.d/10-test\"\n" +
+		"test \"$(cat \"$src/upper/opt/quarshell/init.d/10-test\")\" = '#!/bin/sh\\nprintf ready\\n'\n" +
 		"cp \"$image\" '" + filepath.Join(root, "formatted-image") + "'\n"
 	if err := os.WriteFile(formatter, []byte(script), 0o700); err != nil {
 		t.Fatal(err)

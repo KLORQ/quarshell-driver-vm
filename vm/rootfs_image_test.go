@@ -62,21 +62,21 @@ func TestPrepareRootfsImageBuildsAndReusesContentAddressedImage(t *testing.T) {
 
 func TestGuestInitMountsOptionalWorkloadDiskReadOnly(t *testing.T) {
 	for _, want := range []string{
-		`if [ "${CAUTEM_VM_IMAGE_DISK:-}" = "1" ]; then`,
+		`if [ "${QUARSHELL_VM_IMAGE_DISK:-}" = "1" ]; then`,
 		"mount -t ext4 -o ro,noload /dev/vdc /image",
 		"mount --bind /image/image-rootfs /lower",
 		"mount --bind / /lower",
-		`if [ -n "${CAUTEM_VM_SERVICE_DATA_DISK:-}" ]; then`,
+		`if [ -n "${QUARSHELL_VM_SERVICE_DATA_DISK:-}" ]; then`,
 		"mkdir -p /newroot/var/lib/docker-test",
-		`mount -t ext4 -o rw "$CAUTEM_VM_SERVICE_DATA_DISK" /newroot/var/lib/docker-test`,
+		`mount -t ext4 -o rw "$QUARSHELL_VM_SERVICE_DATA_DISK" /newroot/var/lib/docker-test`,
 		"mkdir -p /newroot/.oldroot",
 		"mount --make-rprivate /",
 		"pivot_root . .oldroot",
 		"umount -l /.oldroot",
 		"export LC_ALL=C",
-		"for dropin in /opt/cautem/init.d/*; do",
-		`"/opt/cautem/init.d/$dropin_name"`,
-		"exec /opt/cautem/bin/guest-agent",
+		"for dropin in /opt/quarshell/init.d/*; do",
+		`"/opt/quarshell/init.d/$dropin_name"`,
+		"exec /opt/quarshell/bin/guest-agent",
 	} {
 		if !strings.Contains(guestInitScript, want) {
 			t.Errorf("guest init script missing workload disk behavior %q", want)
@@ -89,8 +89,8 @@ func TestGuestInitMountsOptionalWorkloadDiskReadOnly(t *testing.T) {
 
 func TestGuestInitImagePrepRequiresVersionedPayloadAndPublishesAtomically(t *testing.T) {
 	for _, want := range []string{
-		`if [ "${CAUTEM_VM_INIT_MODE:-sandbox}" = "image-prep" ] || [ -f /overlay/config/cautem-image/source ]; then`,
-		"payload_dir=/overlay/config/cautem-image",
+		`if [ "${QUARSHELL_VM_INIT_MODE:-sandbox}" = "image-prep" ] || [ -f /overlay/config/quarshell-image/source ]; then`,
+		"payload_dir=/overlay/config/quarshell-image",
 		"prep_log=\"$payload_dir/prep.log\"",
 		"image-prep extracting rootfs.tar",
 		"image-prep rootfs.tar extraction complete",
@@ -98,17 +98,17 @@ func TestGuestInitImagePrepRequiresVersionedPayloadAndPublishesAtomically(t *tes
 		`source="$(cat "$payload_dir/source" 2>/dev/null || true)"`,
 		"tar -xpf \"$payload_dir/rootfs.tar\" -C /overlay/image-rootfs.partial",
 		"tar -xzpf \"$payload_dir/rootfs.tar.gz\" -C /overlay/image-rootfs.partial",
-		"/opt/cautem/bin/umoci raw unpack",
-		"--image \"$payload_dir/oci:cautem\"",
+		"/opt/quarshell/bin/umoci raw unpack",
+		"--image \"$payload_dir/oci:quarshell\"",
 		"du --apparent-size -s -B1 /overlay/image-rootfs.partial",
 		"du -sk /overlay/image-rootfs.partial",
-		`CAUTEM_VM_IMAGE_PREP_MAX_BYTES:-34493956096`,
-		"cp /opt/cautem/bin/guest-agent /overlay/image-rootfs.partial/opt/cautem/bin/guest-agent",
+		`QUARSHELL_VM_IMAGE_PREP_MAX_BYTES:-34493956096`,
+		"cp /opt/quarshell/bin/guest-agent /overlay/image-rootfs.partial/opt/quarshell/bin/guest-agent",
 		"mv /overlay/image-rootfs.partial /overlay/image-rootfs",
 		"rm -rf \"$payload_dir\"",
 		"umount /overlay",
 		"mount -t ext4 -o ro /dev/vdb /image-prep-check",
-		"/image-prep-check/image-rootfs/opt/cautem/bin/guest-agent",
+		"/image-prep-check/image-rootfs/opt/quarshell/bin/guest-agent",
 	} {
 		if !strings.Contains(guestInitScript, want) {
 			t.Errorf("guest init script missing image-prep behavior %q", want)
@@ -136,7 +136,7 @@ func TestInstallGuestRuntimeIncludesPinnedUMOCIForBootstrapPrep(t *testing.T) {
 	if err := installGuestRuntime(guestRoot, guestAgent, umoci); err != nil {
 		t.Fatalf("installGuestRuntime() error = %v", err)
 	}
-	installed, err := os.ReadFile(filepath.Join(guestRoot, "opt", "cautem", "bin", "umoci"))
+	installed, err := os.ReadFile(filepath.Join(guestRoot, "opt", "quarshell", "bin", "umoci"))
 	if err != nil || string(installed) != string(testGuestELF()) {
 		t.Fatalf("installed umoci differs from pinned runtime: err=%v", err)
 	}
@@ -168,7 +168,7 @@ for argument do
   previous=$argument
 done
 test -f "$source/image-rootfs/etc/workload-marker"
-test -f "$source/image-rootfs/opt/cautem/bin/guest-agent"
+test -f "$source/image-rootfs/opt/quarshell/bin/guest-agent"
 for last do :; done
 printf ext4 > "$last"
 `
@@ -341,10 +341,10 @@ func TestPrepareRootfsImageCancellationDoesNotPublishPartialImage(t *testing.T) 
 }
 
 func TestPrepareRootfsImageLiveE2FS(t *testing.T) {
-	if os.Getenv("CAUTEM_VM_ACCEPTANCE") != "1" {
-		t.Skip("set CAUTEM_VM_ACCEPTANCE=1 to run live ext4 acceptance")
+	if os.Getenv("QUARSHELL_VM_ACCEPTANCE") != "1" {
+		t.Skip("set QUARSHELL_VM_ACCEPTANCE=1 to run live ext4 acceptance")
 	}
-	formatter := os.Getenv("CAUTEM_VM_TEST_E2FS_FORMATTER")
+	formatter := os.Getenv("QUARSHELL_VM_TEST_E2FS_FORMATTER")
 	if formatter == "" {
 		var err error
 		formatter, err = resolveExt4Formatter()
@@ -361,12 +361,12 @@ func TestPrepareRootfsImageLiveE2FS(t *testing.T) {
 	archivePath := filepath.Join(root, "rootfs.tar.gz")
 	if err := writeRootfsArchive(archivePath, []rootfsTarEntry{
 		{name: "etc", kind: tar.TypeDir, mode: 0o755},
-		{name: "etc/os-release", kind: tar.TypeReg, body: "ID=cautem-test\n"},
+		{name: "etc/os-release", kind: tar.TypeReg, body: "ID=quarshell-test\n"},
 		{name: "bin", kind: tar.TypeDir, mode: 0o755},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	guestAgent := os.Getenv("CAUTEM_VM_TEST_GUEST_AGENT")
+	guestAgent := os.Getenv("QUARSHELL_VM_TEST_GUEST_AGENT")
 	imagePath, err := prepareRootfsImageWithGuest(context.Background(), archivePath, filepath.Join(root, "cache"), formatter, 4096, guestAgent)
 	if err != nil {
 		t.Fatalf("live ext4 image build: %v", err)
@@ -379,7 +379,7 @@ func TestPrepareRootfsImageLiveE2FS(t *testing.T) {
 		t.Fatalf("ext4 image metadata = size %d mode %#o", info.Size(), info.Mode().Perm())
 	}
 	if guestAgent != "" {
-		verifier := os.Getenv("CAUTEM_VM_TEST_E2FS_VERIFY")
+		verifier := os.Getenv("QUARSHELL_VM_TEST_E2FS_VERIFY")
 		if verifier != "" {
 			output, err := exec.Command(verifier, imagePath).CombinedOutput()
 			if err != nil {

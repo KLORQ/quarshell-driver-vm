@@ -78,6 +78,49 @@ func (d *Driver) OpenExecStream(ctx context.Context, id core.ID, request driver.
 	return session, nil
 }
 
+// OpenMainProcessStream reconnects to the retained canonical workload pipes
+// using the stable session ID persisted with the VM state.
+func (d *Driver) OpenMainProcessStream(ctx context.Context, id core.ID) (driver.ExecStreamSession, error) {
+	if d == nil || ctx == nil {
+		return nil, fmt.Errorf("vm driver: OpenMainProcessStream requires a driver and context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	store, err := openStateStore(d.host.StateDir)
+	if err != nil {
+		return nil, err
+	}
+	state, err := store.load(string(id))
+	if err != nil {
+		return nil, err
+	}
+	if state.Status != "running" {
+		return nil, fmt.Errorf("vm main-process stream: sandbox %q is %s", state.Name, state.Status)
+	}
+	sessionID := state.MainProcessSessionID
+	if sessionID == "" {
+		sessionID = state.MainProcessTTYSessionID
+	}
+	if !validTerminalSessionID(sessionID) {
+		return nil, fmt.Errorf("vm main-process stream: sandbox %q has no retained canonical process session", state.Name)
+	}
+	_, guestSocket, _ := workerSocketPaths(store.root, state.ID)
+	connection, err := d.openControlStream(ctx, state.ID, guestSocket, controlRequest{Operation: "attach-main-process", SessionID: sessionID})
+	if err != nil {
+		return nil, err
+	}
+	session := &vmExecStreamSession{connection: connection, closed: make(chan struct{})}
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = session.Close()
+		case <-session.closed:
+		}
+	}()
+	return session, nil
+}
+
 type vmExecStreamSession struct {
 	connection  net.Conn
 	writeMu     sync.Mutex

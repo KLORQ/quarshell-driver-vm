@@ -180,7 +180,7 @@ func resolveLocalOCIImageConfig(ctx context.Context, reference, expectedID strin
 }
 
 func prepareLocalOCIImageFromEngine(ctx context.Context, engine localImageEngine, metadata localImageMetadata, reference string, platform v1.Platform, cacheDir, formatterPath, guestAgentPath string, cacheMaxBytes int64) (preparedRootfsImage, resolvedOCIImage, bool, error) {
-	archiveFile, err := os.CreateTemp("", "cautem-vm-local-image-*.tar")
+	archiveFile, err := os.CreateTemp("", "quarshell-vm-local-image-*.tar")
 	if err != nil {
 		return preparedRootfsImage{}, resolvedOCIImage{}, true, fmt.Errorf("create temporary local image archive: %w", err)
 	}
@@ -352,7 +352,7 @@ func extractLocalOCILayoutArchive(archivePath string) (string, error) {
 		return "", err
 	}
 	defer archive.Close()
-	destination, err := os.MkdirTemp("", "cautem-vm-local-oci-layout-")
+	destination, err := os.MkdirTemp("", "quarshell-vm-local-oci-layout-")
 	if err != nil {
 		return "", fmt.Errorf("create temporary local OCI layout: %w", err)
 	}
@@ -382,7 +382,7 @@ func extractLocalOCILayoutArchive(archivePath string) (string, error) {
 			if err := os.MkdirAll(path, 0o700); err != nil {
 				return "", fmt.Errorf("create local OCI layout directory: %w", err)
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if header.Size < 0 || header.Size > localOCIImageArchiveMaxBytes-total {
 				return "", fmt.Errorf("local OCI layout archive exceeds %d byte extraction limit", localOCIImageArchiveMaxBytes)
 			}

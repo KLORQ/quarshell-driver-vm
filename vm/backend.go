@@ -124,19 +124,19 @@ func (d *Driver) applyCorporateProxy(spec *vmCreateSpec) error {
 		managed["NO_PROXY"] = host.CorporateProxyNoProxy
 	}
 	if host.CorporateProxyAuthFile != "" {
-		managed["CAUTEM_PROXY_AUTH_FILE"] = host.CorporateProxyAuthFile
+		managed["QUARSHELL_PROXY_AUTH_FILE"] = host.CorporateProxyAuthFile
 	}
 	if host.CorporateProxyCABundle != "" {
-		managed["CAUTEM_PROXY_CA_BUNDLE"] = host.CorporateProxyCABundle
+		managed["QUARSHELL_PROXY_CA_BUNDLE"] = host.CorporateProxyCABundle
 	}
 	if host.CorporateProxyConnectByHostname != nil && *host.CorporateProxyConnectByHostname {
-		managed["CAUTEM_PROXY_CONNECT_BY_HOSTNAME"] = "true"
+		managed["QUARSHELL_PROXY_CONNECT_BY_HOSTNAME"] = "true"
 	}
 	if host.ProviderSPIFFEWorkloadAPIEndpoint != "" {
 		managed["OPENSHELL_PROVIDER_SPIFFE_WORKLOAD_API_SOCKET"] = host.ProviderSPIFFEWorkloadAPIEndpoint
 	}
 	filtered := make([]string, 0, len(spec.ProxyEnv)+len(managed))
-	operatorKeys := map[string]struct{}{"HTTP_PROXY": {}, "HTTPS_PROXY": {}, "NO_PROXY": {}, "CAUTEM_PROXY_AUTH_FILE": {}, "CAUTEM_PROXY_CA_BUNDLE": {}, "CAUTEM_PROXY_CONNECT_BY_HOSTNAME": {}, "OPENSHELL_PROVIDER_SPIFFE_WORKLOAD_API_SOCKET": {}}
+	operatorKeys := map[string]struct{}{"HTTP_PROXY": {}, "HTTPS_PROXY": {}, "NO_PROXY": {}, "QUARSHELL_PROXY_AUTH_FILE": {}, "QUARSHELL_PROXY_CA_BUNDLE": {}, "QUARSHELL_PROXY_CONNECT_BY_HOSTNAME": {}, "OPENSHELL_PROVIDER_SPIFFE_WORKLOAD_API_SOCKET": {}}
 	for _, entry := range spec.ProxyEnv {
 		key, _, ok := strings.Cut(entry, "=")
 		if !ok {
@@ -147,7 +147,7 @@ func (d *Driver) applyCorporateProxy(spec *vmCreateSpec) error {
 			filtered = append(filtered, entry)
 		}
 	}
-	keys := []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "CAUTEM_PROXY_AUTH_FILE", "CAUTEM_PROXY_CA_BUNDLE", "CAUTEM_PROXY_CONNECT_BY_HOSTNAME", "OPENSHELL_PROVIDER_SPIFFE_WORKLOAD_API_SOCKET"}
+	keys := []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "QUARSHELL_PROXY_AUTH_FILE", "QUARSHELL_PROXY_CA_BUNDLE", "QUARSHELL_PROXY_CONNECT_BY_HOSTNAME", "OPENSHELL_PROVIDER_SPIFFE_WORKLOAD_API_SOCKET"}
 	for _, key := range keys {
 		if value, ok := managed[key]; ok {
 			filtered = append(filtered, key+"="+value)

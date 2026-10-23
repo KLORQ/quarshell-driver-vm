@@ -239,7 +239,7 @@ func liveGatewayCredentials(t *testing.T, sandboxID string) (driver.RuntimeLaunc
 
 func assertLiveGatewayCredentialLaunch(t *testing.T, ctx context.Context, host HostConfig, rootfsTar, initBin, supervisorBin, sshBin, proxyBinary, policyPath string) {
 	t.Helper()
-	initialPolicy := []byte("# cautem-policy-revision: 1\nversion: 1\nlandlock:\n  compatibility: best_effort\nprocess:\n  run_as_user: '1000'\n  run_as_group: '1000'\nnetwork_policies: {}\n")
+	initialPolicy := []byte("# quarshell-policy-revision: 1\nversion: 1\nlandlock:\n  compatibility: best_effort\nprocess:\n  run_as_user: '1000'\n  run_as_group: '1000'\nnetwork_policies: {}\n")
 	if err := os.WriteFile(policyPath, initialPolicy, 0o600); err != nil {
 		t.Fatalf("write initial paired-credential policy: %v", err)
 	}
@@ -307,7 +307,7 @@ func assertLiveGatewayCredentialLaunch(t *testing.T, ctx context.Context, host H
 	case <-time.After(20 * time.Second):
 		t.Fatal("production proxy did not report the initial policy with the Sandbox bearer")
 	}
-	if err := os.WriteFile(policyPath, []byte("# cautem-policy-revision: 2\nversion: 1\nlandlock:\n  compatibility: best_effort\nprocess:\n  run_as_user: '1000'\n  run_as_group: '1000'\nnetwork_policies:\n  credential-acceptance:\n    endpoints:\n      - host: acceptance.invalid\n        port: 80\n"), 0o600); err != nil {
+	if err := os.WriteFile(policyPath, []byte("# quarshell-policy-revision: 2\nversion: 1\nlandlock:\n  compatibility: best_effort\nprocess:\n  run_as_user: '1000'\n  run_as_group: '1000'\nnetwork_policies:\n  credential-acceptance:\n    endpoints:\n      - host: acceptance.invalid\n        port: 80\n"), 0o600); err != nil {
 		t.Fatalf("write paired-credential policy update: %v", err)
 	}
 	t.Log("live Gateway accepted supervisor session with the Sandbox bearer")

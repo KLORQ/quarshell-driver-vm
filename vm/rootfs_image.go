@@ -518,7 +518,7 @@ func installGuestRuntime(rootfsDir, guestAgentPath string, guestUMOCIPath ...str
 			return fmt.Errorf("create guest mountpoint %q: %w", mountpoint, err)
 		}
 	}
-	destination := filepath.Join(rootfsDir, "opt", "cautem", "bin", "guest-agent")
+	destination := filepath.Join(rootfsDir, "opt", "quarshell", "bin", "guest-agent")
 	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
 		return fmt.Errorf("create guest agent directory: %w", err)
 	}
@@ -531,12 +531,12 @@ func installGuestRuntime(rootfsDir, guestAgentPath string, guestUMOCIPath ...str
 			return fmt.Errorf("validate guest umoci: %w", err)
 		}
 		_ = umociDigest
-		umociDestination := filepath.Join(rootfsDir, "opt", "cautem", "bin", "umoci")
+		umociDestination := filepath.Join(rootfsDir, "opt", "quarshell", "bin", "umoci")
 		if err := copyRegularFile(guestUMOCIPath[0], umociDestination, 0o755); err != nil {
 			return fmt.Errorf("install guest umoci: %w", err)
 		}
 	}
-	initPath := filepath.Join(rootfsDir, "opt", "cautem", "vm-init")
+	initPath := filepath.Join(rootfsDir, "opt", "quarshell", "vm-init")
 	if err := os.WriteFile(initPath, []byte(guestInitScript), 0o755); err != nil {
 		return fmt.Errorf("install guest VM init: %w", err)
 	}
@@ -579,11 +579,11 @@ mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 mount -o remount,ro / 2>/dev/null || true
 mkdir -p /overlay /lower /newroot
 mount -t ext4 -o rw /dev/vdb /overlay
-if [ "${CAUTEM_VM_INIT_MODE:-sandbox}" = "image-prep" ] || [ -f /overlay/config/cautem-image/source ]; then
+if [ "${QUARSHELL_VM_INIT_MODE:-sandbox}" = "image-prep" ] || [ -f /overlay/config/quarshell-image/source ]; then
   # Match OpenShell's prep layout: a temporary ext4 disk is both the payload
   # staging area and the prepared image output. Never expose registry
   # credentials to this guest. Publish only after extraction succeeds.
-  payload_dir=/overlay/config/cautem-image
+  payload_dir=/overlay/config/quarshell-image
   prep_log="$payload_dir/prep.log"
   exec >>"$prep_log" 2>&1
   trap 'prep_status=$?; printf "image-prep exit status=%s\n" "$prep_status"; sync' EXIT
@@ -615,12 +615,12 @@ if [ "${CAUTEM_VM_INIT_MODE:-sandbox}" = "image-prep" ] || [ -f /overlay/config/
       echo "image-prep rootfs.tar.gz extraction complete"
       ;;
     oci-layout-v1)
-      if [ ! -x /opt/cautem/bin/umoci ]; then
+      if [ ! -x /opt/quarshell/bin/umoci ]; then
         echo "FATAL: umoci not found in VM bootstrap image" >&2
         exit 1
       fi
-      /opt/cautem/bin/umoci raw unpack \
-        --image "$payload_dir/oci:cautem" \
+      /opt/quarshell/bin/umoci raw unpack \
+        --image "$payload_dir/oci:quarshell" \
         /overlay/image-rootfs.partial
       echo "image-prep OCI extraction complete"
       ;;
@@ -639,16 +639,16 @@ if [ "${CAUTEM_VM_INIT_MODE:-sandbox}" = "image-prep" ] || [ -f /overlay/config/
   case "$expanded_bytes" in
     ''|*[!0-9]*) echo "FATAL: unable to measure prepared rootfs size" >&2; exit 1 ;;
   esac
-  if [ "$expanded_bytes" -gt "${CAUTEM_VM_IMAGE_PREP_MAX_BYTES:-34493956096}" ]; then
+  if [ "$expanded_bytes" -gt "${QUARSHELL_VM_IMAGE_PREP_MAX_BYTES:-34493956096}" ]; then
     echo "FATAL: prepared rootfs exceeds the configured size limit" >&2
     exit 1
   fi
   for mountpoint in proc sys dev run tmp overlay lower newroot image; do
     mkdir -p "/overlay/image-rootfs.partial/$mountpoint"
   done
-  mkdir -p /overlay/image-rootfs.partial/opt/cautem/bin
-  cp /opt/cautem/bin/guest-agent /overlay/image-rootfs.partial/opt/cautem/bin/guest-agent
-  chmod 0755 /overlay/image-rootfs.partial/opt/cautem/bin/guest-agent
+  mkdir -p /overlay/image-rootfs.partial/opt/quarshell/bin
+  cp /opt/quarshell/bin/guest-agent /overlay/image-rootfs.partial/opt/quarshell/bin/guest-agent
+  chmod 0755 /overlay/image-rootfs.partial/opt/quarshell/bin/guest-agent
   chmod 0755 /overlay/image-rootfs.partial
   mv /overlay/image-rootfs.partial /overlay/image-rootfs
   rm -rf "$payload_dir"
@@ -656,7 +656,7 @@ if [ "${CAUTEM_VM_INIT_MODE:-sandbox}" = "image-prep" ] || [ -f /overlay/config/
   umount /overlay
   mkdir -p /image-prep-check
   mount -t ext4 -o ro /dev/vdb /image-prep-check
-  if [ ! -d /image-prep-check/image-rootfs ] || [ ! -x /image-prep-check/image-rootfs/opt/cautem/bin/guest-agent ]; then
+  if [ ! -d /image-prep-check/image-rootfs ] || [ ! -x /image-prep-check/image-rootfs/opt/quarshell/bin/guest-agent ]; then
     echo "FATAL: prepared image-rootfs did not persist on /dev/vdb" >&2
     ls -la /image-prep-check >&2 || true
     exit 1
@@ -665,7 +665,7 @@ if [ "${CAUTEM_VM_INIT_MODE:-sandbox}" = "image-prep" ] || [ -f /overlay/config/
   exit 0
 fi
 mkdir -p /overlay/upper /overlay/work
-if [ "${CAUTEM_VM_IMAGE_DISK:-}" = "1" ]; then
+if [ "${QUARSHELL_VM_IMAGE_DISK:-}" = "1" ]; then
   # The prepared image is synced and unmounted before publication. It is
   # immutable thereafter, so skip journal replay on its read-only virtio disk.
   if ! mount -t ext4 -o ro,noload /dev/vdc /image; then
@@ -681,8 +681,8 @@ else
 fi
 mount -o remount,bind,ro /lower 2>/dev/null || true
 mount -t overlay overlay -o lowerdir=/lower,upperdir=/overlay/upper,workdir=/overlay/work /newroot
-configured_uid=${CAUTEM_VM_SANDBOX_UID:-}
-configured_gid=${CAUTEM_VM_SANDBOX_GID:-}
+configured_uid=${QUARSHELL_VM_SANDBOX_UID:-}
+configured_gid=${QUARSHELL_VM_SANDBOX_GID:-}
 sandbox_uid=${configured_uid:-1000}
 sandbox_gid=${configured_gid:-$sandbox_uid}
 mkdir -p /newroot/etc
@@ -690,7 +690,7 @@ reconcile_account_file() {
   account_file=$1
   account_line=$2
   account_name=$3
-  account_tmp="$account_file.cautem-tmp"
+  account_tmp="$account_file.quarshell-tmp"
   if [ -f "$account_file" ]; then
     awk -F: -v OFS=: -v name="$account_name" -v line="$account_line" '
       BEGIN { found=0 }
@@ -716,9 +716,9 @@ for path in proc sys dev run tmp; do
   mount --rbind "/$path" "/newroot/$path"
 done
 mkdir -p /newroot/sandbox /newroot/workspace
-if [ -n "${CAUTEM_VM_SERVICE_DATA_DISK:-}" ]; then
+if [ -n "${QUARSHELL_VM_SERVICE_DATA_DISK:-}" ]; then
   mkdir -p /newroot/var/lib/docker-test
-  mount -t ext4 -o rw "$CAUTEM_VM_SERVICE_DATA_DISK" /newroot/var/lib/docker-test
+  mount -t ext4 -o rw "$QUARSHELL_VM_SERVICE_DATA_DISK" /newroot/var/lib/docker-test
   chmod 0700 /newroot/var/lib/docker-test
 fi
 mkdir -p /newroot/.oldroot
@@ -734,8 +734,8 @@ if [ -r /etc/passwd ]; then
     if [ "$name" = sandbox ]; then guest_uid=${uid:-1000}; guest_gid=${gid:-$guest_uid}; break; fi
   done < /etc/passwd
 fi
-configured_uid=${CAUTEM_VM_SANDBOX_UID:-}
-configured_gid=${CAUTEM_VM_SANDBOX_GID:-}
+configured_uid=${QUARSHELL_VM_SANDBOX_UID:-}
+configured_gid=${QUARSHELL_VM_SANDBOX_GID:-}
 case "$configured_uid" in
   ''|*[!0-9]*) ;;
   *) guest_uid=$configured_uid ;;
@@ -746,18 +746,18 @@ case "$configured_gid" in
     ;;
   *) guest_gid=$configured_gid ;;
 esac
-unset CAUTEM_VM_SANDBOX_UID CAUTEM_VM_SANDBOX_GID
+unset QUARSHELL_VM_SANDBOX_UID QUARSHELL_VM_SANDBOX_GID
 chown "$guest_uid:$guest_gid" /sandbox 2>/dev/null || true
 mount --bind /sandbox /workspace
-export CAUTEM_VM_UID="$guest_uid" CAUTEM_VM_GID="$guest_gid"
-if [ -d /opt/cautem/init.d ]; then
-  for dropin in /opt/cautem/init.d/*; do
+export QUARSHELL_VM_UID="$guest_uid" QUARSHELL_VM_GID="$guest_gid"
+if [ -d /opt/quarshell/init.d ]; then
+  for dropin in /opt/quarshell/init.d/*; do
     [ -f "$dropin" ] || continue
     dropin_name=${dropin##*/}
-    "/opt/cautem/init.d/$dropin_name"
+    "/opt/quarshell/init.d/$dropin_name"
   done
 fi
-exec /opt/cautem/bin/guest-agent
+exec /opt/quarshell/bin/guest-agent
 `
 
 type boundedReader struct {
@@ -880,7 +880,7 @@ func WriteGuestInit(root string) error {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
-	initDir := filepath.Join(root, "opt", "cautem")
+	initDir := filepath.Join(root, "opt", "quarshell")
 	if err := os.MkdirAll(initDir, 0o755); err != nil {
 		return err
 	}

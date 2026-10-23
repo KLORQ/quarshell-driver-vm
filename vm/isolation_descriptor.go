@@ -55,7 +55,7 @@ func buildVMIsolationDescriptor(state sandboxState, identity vmControlIdentity) 
 		return nil, fmt.Errorf("encode VM isolation backend payload: %w", err)
 	}
 	return isolation.EncodeDescriptor(isolation.Descriptor{
-		Version: isolation.DescriptorVersion, BackendName: "cautem/vm", SandboxID: state.ID,
+		Version: isolation.DescriptorVersion, BackendName: "quarshell/vm", SandboxID: state.ID,
 		SessionID: state.RuntimeSessionID, Generation: state.RuntimeGeneration,
 		RootfsDigest: state.RootfsSourceDigest, RuntimeDigest: state.RuntimeDigest, Payload: payload,
 	})
@@ -118,7 +118,7 @@ func validateVMControlIdentityFiles(state sandboxState, identity vmControlIdenti
 	if _, err := clientCert.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		return fmt.Errorf("VM control client certificate is not currently trusted: %w", err)
 	}
-	expectedURI, err := url.Parse("spiffe://cautem.vm/sandbox/" + state.ID + "/session/" + state.RuntimeSessionID + "/rootfs/" + state.RootfsSourceDigest + "/runtime/" + state.RuntimeDigest + "/generation/" + state.RuntimeGeneration)
+	expectedURI, err := url.Parse("spiffe://quarshell.vm/sandbox/" + state.ID + "/session/" + state.RuntimeSessionID + "/rootfs/" + state.RootfsSourceDigest + "/runtime/" + state.RuntimeDigest + "/generation/" + state.RuntimeGeneration)
 	if err != nil || identity.ExpectedClientIdentity != expectedURI.String() || len(clientCert.URIs) != 1 || clientCert.URIs[0].String() != expectedURI.String() {
 		return fmt.Errorf("VM control certificate identity does not match sandbox session and generation")
 	}
@@ -164,7 +164,7 @@ func readVMIsolationDescriptor(sandboxDir string, state sandboxState) ([]byte, e
 	if err != nil {
 		return nil, fmt.Errorf("decode VM isolation descriptor: %w", err)
 	}
-	if descriptor.BackendName != "cautem/vm" || descriptor.SandboxID != state.ID || descriptor.SessionID != state.RuntimeSessionID || descriptor.Generation != state.RuntimeGeneration || descriptor.RootfsDigest != state.RootfsSourceDigest || descriptor.RuntimeDigest != state.RuntimeDigest {
+	if descriptor.BackendName != "quarshell/vm" || descriptor.SandboxID != state.ID || descriptor.SessionID != state.RuntimeSessionID || descriptor.Generation != state.RuntimeGeneration || descriptor.RootfsDigest != state.RootfsSourceDigest || descriptor.RuntimeDigest != state.RuntimeDigest {
 		return nil, fmt.Errorf("VM isolation descriptor does not match current durable sandbox session")
 	}
 	expectedPayload, err := json.Marshal(vmIsolationPayload{
@@ -183,7 +183,7 @@ func readVMIsolationDescriptor(sandboxDir string, state sandboxState) ([]byte, e
 		ServerKeyPath: filepath.Join(identityDir, "server.key"), ClientCertPath: filepath.Join(identityDir, "client.crt"),
 		ClientKeyPath: filepath.Join(identityDir, "client.key"), Generation: state.RuntimeGeneration,
 		SessionID:              state.RuntimeSessionID,
-		ExpectedClientIdentity: "spiffe://cautem.vm/sandbox/" + state.ID + "/session/" + state.RuntimeSessionID + "/rootfs/" + state.RootfsSourceDigest + "/runtime/" + state.RuntimeDigest + "/generation/" + state.RuntimeGeneration,
+		ExpectedClientIdentity: "spiffe://quarshell.vm/sandbox/" + state.ID + "/session/" + state.RuntimeSessionID + "/rootfs/" + state.RootfsSourceDigest + "/runtime/" + state.RuntimeDigest + "/generation/" + state.RuntimeGeneration,
 	}
 	if err := validateVMControlIdentityFiles(state, identity); err != nil {
 		return nil, fmt.Errorf("validate VM descriptor credentials: %w", err)

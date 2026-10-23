@@ -24,7 +24,7 @@ func TestGuestProxyCABundleValidatesAndLoadsOperatorCertificate(t *testing.T) {
 	if err := os.WriteFile(path, contents, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := guestProxyCABundle([]string{"CAUTEM_PROXY_CA_BUNDLE=" + path})
+	got, err := guestProxyCABundle([]string{"QUARSHELL_PROXY_CA_BUNDLE=" + path})
 	if err != nil || got != string(contents) {
 		t.Fatalf("guestProxyCABundle() error=%v, contents match=%t", err, got == string(contents))
 	}
@@ -35,14 +35,14 @@ func TestGuestProxyCABundleValidatesAndLoadsOperatorCertificate(t *testing.T) {
 	if err := os.WriteFile(path, largeBundle, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err = guestProxyCABundle([]string{"CAUTEM_PROXY_CA_BUNDLE=" + path})
+	got, err = guestProxyCABundle([]string{"QUARSHELL_PROXY_CA_BUNDLE=" + path})
 	if err != nil || got != string(largeBundle) {
 		t.Fatalf("bundle over 64 KiB = (%d bytes, %v)", len(got), err)
 	}
 	if err := os.WriteFile(path, []byte("not a certificate"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := guestProxyCABundle([]string{"CAUTEM_PROXY_CA_BUNDLE=" + path}); err == nil || !strings.Contains(err.Error(), "valid certificates") {
+	if _, err := guestProxyCABundle([]string{"QUARSHELL_PROXY_CA_BUNDLE=" + path}); err == nil || !strings.Contains(err.Error(), "valid certificates") {
 		t.Fatalf("malformed bundle error = %v", err)
 	}
 }
@@ -70,13 +70,13 @@ func newTestProxyCABundle(t *testing.T) []byte {
 
 func TestGuestInitDoesNotReceiveProxyCABundleInEnvironment(t *testing.T) {
 	for _, want := range []string{
-		"exec /opt/cautem/bin/guest-agent",
+		"exec /opt/quarshell/bin/guest-agent",
 	} {
 		if !strings.Contains(guestInitScript, want) {
 			t.Errorf("guest init script missing %q", want)
 		}
 	}
-	if strings.Contains(guestInitScript, "CAUTEM_VM_PROXY_CA_BUNDLE_PEM") {
+	if strings.Contains(guestInitScript, "QUARSHELL_VM_PROXY_CA_BUNDLE_PEM") {
 		t.Fatal("proxy CA bundle must be delivered over authenticated control after boot, not environment")
 	}
 }

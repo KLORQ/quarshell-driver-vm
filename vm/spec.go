@@ -29,9 +29,6 @@ func (d *Driver) validateCreateSpec(spec vmCreateSpec) error {
 	if err := validateMainProcessRestartPolicy(spec); err != nil {
 		return err
 	}
-	if spec.AwaitMainProcessAttachment && !spec.TTY {
-		return fmt.Errorf("vm driver: awaiting a main-process attachment requires a TTY workload")
-	}
 	if err := validateGPURequest(spec.GPU, config); err != nil {
 		return err
 	}
@@ -165,7 +162,7 @@ func validateGatewayWorkerTrust(worker string, host HostConfig) error {
 	teamID := strings.TrimSpace(host.WorkerTeamID)
 	workerHash := strings.TrimSpace(host.WorkerSHA256)
 	if teamID == "" && workerHash == "" {
-		return fmt.Errorf("configure CAUTEM_VM_WORKER_TEAM_ID or CAUTEM_VM_WORKER_SHA256 to trust the macOS VM worker")
+		return fmt.Errorf("configure QUARSHELL_VM_WORKER_TEAM_ID or QUARSHELL_VM_WORKER_SHA256 to trust the macOS VM worker")
 	}
 	if teamID != "" {
 		verify := host.workerSignatureVerifier
@@ -235,7 +232,7 @@ func validateNetworkBrokerEnvironment(entries []string) error {
 		if strings.HasPrefix(key, "LD_") || strings.HasPrefix(key, "DYLD_") || key == "PATH" || key == "HOME" {
 			return fmt.Errorf("vm driver: policy proxy environment may not override %s or dynamic loader settings", key)
 		}
-		if key == "CAUTEM_HOST_PARENT_LIVENESS" {
+		if key == "QUARSHELL_HOST_PARENT_LIVENESS" {
 			return fmt.Errorf("vm driver: policy proxy environment may not override host lifecycle controls")
 		}
 		if _, exists := seen[key]; exists {

@@ -241,10 +241,14 @@ func (d *Driver) mainProcessTTYSessionID(id core.ID) (string, error) {
 	if state.Status != "running" {
 		return "", fmt.Errorf("vm main-process TTY: sandbox %q is %s", state.Name, state.Status)
 	}
-	if !validTerminalSessionID(state.MainProcessTTYSessionID) {
+	sessionID := state.MainProcessSessionID
+	if sessionID == "" {
+		sessionID = state.MainProcessTTYSessionID
+	}
+	if !validTerminalSessionID(sessionID) {
 		return "", fmt.Errorf("vm main-process TTY: sandbox %q was not started with a TTY", state.Name)
 	}
-	return state.MainProcessTTYSessionID, nil
+	return sessionID, nil
 }
 
 var _ driver.MainProcessTTY = (*Driver)(nil)

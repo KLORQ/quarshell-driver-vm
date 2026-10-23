@@ -43,7 +43,7 @@ func TestCompatVMConfigValidationContract(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := New().createSandbox(context.Background(), vmCreateSpec{
 				Name:             "contract-sandbox",
-				Image:            "cautem-sandbox:local",
+				Image:            "quarshell-sandbox:local",
 				GPU:              true,
 				DriverConfigJSON: tt.config,
 			})
@@ -60,7 +60,7 @@ func TestCompatVMRejectsGPUBeforeRootfsOrStateSideEffects(t *testing.T) {
 	missingTar := filepath.Join(root, "missing-rootfs.tar")
 	d := NewWithHostConfig(HostConfig{StateDir: stateDir, RootfsTarDir: root})
 	_, err := d.createSandbox(context.Background(), vmCreateSpec{
-		Name: "gpu-without-vfio", Image: "cautem-sandbox:local", GPU: true,
+		Name: "gpu-without-vfio", Image: "quarshell-sandbox:local", GPU: true,
 		DriverConfigJSON: `{"gpu_device_ids":["0000:2d:00.0"],"rootfs_tar_path":"` + missingTar + `"}`,
 	})
 	if err == nil || !strings.Contains(err.Error(), "unsupported spec fields: gpu") {
@@ -77,7 +77,7 @@ func TestCompatVMRejectsGPUBeforeRootfsOrStateSideEffects(t *testing.T) {
 func TestCompatVMRejectsGPUDeviceIDsWithoutGPURequest(t *testing.T) {
 	_, err := New().createSandbox(context.Background(), vmCreateSpec{
 		Name:             "contract-sandbox",
-		Image:            "cautem-sandbox:local",
+		Image:            "quarshell-sandbox:local",
 		DriverConfigJSON: `{"gpu_device_ids":["0000:2d:00.0"]}`,
 	})
 	if err == nil || !strings.Contains(err.Error(), "requires a GPU request") {
@@ -88,7 +88,7 @@ func TestCompatVMRejectsGPUDeviceIDsWithoutGPURequest(t *testing.T) {
 func TestCompatVMRejectsMultipleGPUDeviceIDs(t *testing.T) {
 	_, err := New().createSandbox(context.Background(), vmCreateSpec{
 		Name:             "contract-sandbox",
-		Image:            "cautem-sandbox:local",
+		Image:            "quarshell-sandbox:local",
 		GPU:              true,
 		DriverConfigJSON: `{"gpu_device_ids":["0000:2d:00.0","0000:31:00.0"]}`,
 	})
@@ -100,7 +100,7 @@ func TestCompatVMRejectsMultipleGPUDeviceIDs(t *testing.T) {
 func TestCompatVMRejectsPathUnsafeSandboxNames(t *testing.T) {
 	for _, name := range []string{"", ".", "..", "../escape", "/tmp/escape", "nested/path", "nested\\path", "bad\nid", "bad id", "unicodé", strings.Repeat("a", 129)} {
 		t.Run(name, func(t *testing.T) {
-			_, err := New().createSandbox(context.Background(), vmCreateSpec{Name: name, Image: "cautem-sandbox:local"})
+			_, err := New().createSandbox(context.Background(), vmCreateSpec{Name: name, Image: "quarshell-sandbox:local"})
 			if err == nil || (!strings.Contains(err.Error(), "invalid") && !strings.Contains(err.Error(), "unsafe")) {
 				t.Fatalf("Create(%q) error = %v; want invalid/unsafe sandbox name", name, err)
 			}
@@ -109,20 +109,20 @@ func TestCompatVMRejectsPathUnsafeSandboxNames(t *testing.T) {
 }
 
 func TestCompatVMDriverConfigAcceptsSingleGPUAndRootfsPath(t *testing.T) {
-	config, err := ParseSandboxDriverConfig(`{"gpu_device_ids":["0000:2d:00.0"],"rootfs_tar_path":"/var/lib/cautem/rootfs.tar"}`)
+	config, err := ParseSandboxDriverConfig(`{"gpu_device_ids":["0000:2d:00.0"],"rootfs_tar_path":"/var/lib/quarshell/rootfs.tar"}`)
 	if err != nil {
 		t.Fatalf("ParseSandboxDriverConfig() error = %v", err)
 	}
 	if config.GPUDeviceIDs == nil || len(*config.GPUDeviceIDs) != 1 || (*config.GPUDeviceIDs)[0] != "0000:2d:00.0" {
 		t.Fatalf("GPU device IDs = %v; want one PCI device ID", config.GPUDeviceIDs)
 	}
-	if config.RootfsTarPath != "/var/lib/cautem/rootfs.tar" {
+	if config.RootfsTarPath != "/var/lib/quarshell/rootfs.tar" {
 		t.Fatalf("rootfs_tar_path = %q; want configured path", config.RootfsTarPath)
 	}
 }
 
 func TestVMDriverConfigValidatesHostRelayEndpointTLSContract(t *testing.T) {
-	config, err := ParseSandboxDriverConfig(`{"grpc_endpoint":"gateway.internal:7443","rootfs_tar_path":"/var/lib/cautem/rootfs.tar"}`)
+	config, err := ParseSandboxDriverConfig(`{"grpc_endpoint":"gateway.internal:7443","rootfs_tar_path":"/var/lib/quarshell/rootfs.tar"}`)
 	if err != nil || config.GRPCEndpoint != "gateway.internal:7443" {
 		t.Fatalf("ParseSandboxDriverConfig() = %+v, %v", config, err)
 	}

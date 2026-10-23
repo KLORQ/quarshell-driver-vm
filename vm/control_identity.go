@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-const guestControlCredentialDir = "/run/cautem/supervisor-control-private"
+const guestControlCredentialDir = "/run/quarshell/supervisor-control-private"
 
 type vmControlIdentity struct {
 	CAPath, ServerCertPath, ServerKeyPath, ClientCertPath, ClientKeyPath string
@@ -92,7 +92,7 @@ func createVMControlIdentity(dir, sandboxID, rootfsDigest, runtimeDigest, runtim
 		encodedSession := hex.EncodeToString(sessionNonce[:])
 		sessionID = encodedSession[:8] + "-" + encodedSession[8:12] + "-" + encodedSession[12:16] + "-" + encodedSession[16:20] + "-" + encodedSession[20:]
 	}
-	identity, err := url.Parse("spiffe://cautem.vm/sandbox/" + sandboxID + "/session/" + sessionID + "/rootfs/" + rootfsDigest + "/runtime/" + runtimeDigest + "/generation/" + generation)
+	identity, err := url.Parse("spiffe://quarshell.vm/sandbox/" + sandboxID + "/session/" + sessionID + "/rootfs/" + rootfsDigest + "/runtime/" + runtimeDigest + "/generation/" + generation)
 	if err != nil {
 		return result, fmt.Errorf("build VM control identity: %w", err)
 	}
@@ -105,7 +105,7 @@ func createVMControlIdentity(dir, sandboxID, rootfsDigest, runtimeDigest, runtim
 	if err != nil {
 		return result, fmt.Errorf("generate VM control CA serial: %w", err)
 	}
-	caTemplate := &x509.Certificate{SerialNumber: caSerial, Subject: pkix.Name{CommonName: "cautem-vm-control-ca"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(370 * 24 * time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature}
+	caTemplate := &x509.Certificate{SerialNumber: caSerial, Subject: pkix.Name{CommonName: "quarshell-vm-control-ca"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(370 * 24 * time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature}
 	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
 	if err != nil {
 		return result, err
@@ -160,7 +160,7 @@ func canonicalNonNilUUID(raw string) bool {
 
 func vmRuntimeDigest(paths ...string) (string, error) {
 	hash := sha256.New()
-	_, _ = io.WriteString(hash, "cautem-vm-runtime-v1\x00")
+	_, _ = io.WriteString(hash, "quarshell-vm-runtime-v1\x00")
 	for _, raw := range paths {
 		path := strings.TrimSpace(raw)
 		if path == "" {
@@ -207,9 +207,9 @@ func issueVMControlCert(ca *x509.Certificate, caKey *ecdsa.PrivateKey, now time.
 	if err != nil {
 		return tls.Certificate{}, err
 	}
-	template := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "cautem-vm-control-peer"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(365 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{usage}}
+	template := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "quarshell-vm-control-peer"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(365 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{usage}}
 	if server {
-		template.DNSNames = []string{"cautem-supervisor-control"}
+		template.DNSNames = []string{"quarshell-supervisor-control"}
 		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
 	}
 	if identity != nil {

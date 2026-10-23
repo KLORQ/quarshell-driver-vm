@@ -75,7 +75,7 @@ type workerControlResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
-// RunWorkerFromStdin is the entry point used by cmd/cautem-vm-worker. Worker
+// RunWorkerFromStdin is the entry point used by cmd/quarshell-vm-worker. Worker
 // configuration travels over stdin so secrets and guest settings are not
 // exposed in process arguments or persisted in sandbox metadata.
 func RunWorkerFromStdin() error {
@@ -125,7 +125,7 @@ func validateWorkerNetworkBroker(config workerConfig) error {
 			}
 		}
 		for _, entry := range config.Launch.Env {
-			if strings.HasPrefix(entry, "CAUTEM_VM_NETWORK_BROKER_PORT=") || strings.HasPrefix(entry, "CAUTEM_VM_NETWORK_PROXY_PORT=") || strings.HasPrefix(entry, "CAUTEM_VM_SSH_RELAY_PORT=") || strings.HasPrefix(entry, "CAUTEM_VM_SUPERVISOR_CONTROL_PORT=") {
+			if strings.HasPrefix(entry, "QUARSHELL_VM_NETWORK_BROKER_PORT=") || strings.HasPrefix(entry, "QUARSHELL_VM_NETWORK_PROXY_PORT=") || strings.HasPrefix(entry, "QUARSHELL_VM_SSH_RELAY_PORT=") || strings.HasPrefix(entry, "QUARSHELL_VM_SUPERVISOR_CONTROL_PORT=") {
 				return fmt.Errorf("VM worker has network proxy settings without a broker process")
 			}
 		}
@@ -140,10 +140,10 @@ func validateWorkerNetworkBroker(config workerConfig) error {
 		return fmt.Errorf("VM worker launch environment is missing a valid guest proxy port")
 	}
 	for _, entry := range config.Launch.Env {
-		if entry == fmt.Sprintf("CAUTEM_VM_NETWORK_BROKER_PORT=%d", networkBrokerVsockPort) {
+		if entry == fmt.Sprintf("QUARSHELL_VM_NETWORK_BROKER_PORT=%d", networkBrokerVsockPort) {
 			brokerPortCount++
 		}
-		if entry == fmt.Sprintf("CAUTEM_VM_NETWORK_PROXY_PORT=%d", proxyPortValue) {
+		if entry == fmt.Sprintf("QUARSHELL_VM_NETWORK_PROXY_PORT=%d", proxyPortValue) {
 			proxyPortCount++
 		}
 	}
@@ -159,10 +159,10 @@ func validateWorkerNetworkBroker(config workerConfig) error {
 const (
 	sshRelayVsockPort     = uint32(5502)
 	supervisorControlPort = uint32(5503)
-	guestSSHBinary        = "/cautem/cautem-sshd"
-	guestInitBinary       = "/cautem/cautem-init"
-	guestPolicyFile       = "/cautem/policy.yaml"
-	guestSupervisorBinary = "/cautem/cautem-supervisor"
+	guestSSHBinary        = "/quarshell/quarshell-sshd"
+	guestInitBinary       = "/quarshell/quarshell-init"
+	guestPolicyFile       = "/quarshell/policy.yaml"
+	guestSupervisorBinary = "/quarshell/quarshell-supervisor"
 )
 
 func validateWorkerRelayMapping(mappings []KrunVsockPort, environment []string, broker *networkBrokerConfig) error {
@@ -189,22 +189,22 @@ func validateWorkerRelayMapping(mappings []KrunVsockPort, environment []string, 
 		return count
 	}
 	if broker.SSHSocket == "" {
-		if len(find(sshRelayVsockPort)) != 0 || countEnv("CAUTEM_VM_SSH_RELAY_PORT=", "CAUTEM_VM_SSH_RELAY_PORT="+strconv.Itoa(int(sshRelayVsockPort))) != 0 {
+		if len(find(sshRelayVsockPort)) != 0 || countEnv("QUARSHELL_VM_SSH_RELAY_PORT=", "QUARSHELL_VM_SSH_RELAY_PORT="+strconv.Itoa(int(sshRelayVsockPort))) != 0 {
 			return fmt.Errorf("VM worker has SSH relay settings without a host relay socket")
 		}
 	} else {
 		found := find(sshRelayVsockPort)
-		if len(found) != 1 || found[0].Socket != broker.SSHSocket || !found[0].Listen || countEnv("CAUTEM_VM_SSH_RELAY_PORT=", "CAUTEM_VM_SSH_RELAY_PORT="+strconv.Itoa(int(sshRelayVsockPort))) != 1 {
+		if len(found) != 1 || found[0].Socket != broker.SSHSocket || !found[0].Listen || countEnv("QUARSHELL_VM_SSH_RELAY_PORT=", "QUARSHELL_VM_SSH_RELAY_PORT="+strconv.Itoa(int(sshRelayVsockPort))) != 1 {
 			return fmt.Errorf("VM worker requires one host-listening SSH relay vsock mapping")
 		}
 	}
 	if broker.ControlSocket == "" {
-		if len(find(supervisorControlPort)) != 0 || countEnv("CAUTEM_VM_SUPERVISOR_CONTROL_PORT=", "CAUTEM_VM_SUPERVISOR_CONTROL_PORT="+strconv.Itoa(int(supervisorControlPort))) != 0 || countEnv("CAUTEM_VM_SUPERVISOR_ENABLED=", "CAUTEM_VM_SUPERVISOR_ENABLED=1") != 0 {
+		if len(find(supervisorControlPort)) != 0 || countEnv("QUARSHELL_VM_SUPERVISOR_CONTROL_PORT=", "QUARSHELL_VM_SUPERVISOR_CONTROL_PORT="+strconv.Itoa(int(supervisorControlPort))) != 0 || countEnv("QUARSHELL_VM_SUPERVISOR_ENABLED=", "QUARSHELL_VM_SUPERVISOR_ENABLED=1") != 0 {
 			return fmt.Errorf("VM worker has supervisor control settings without a host control socket")
 		}
 	} else {
 		found := find(supervisorControlPort)
-		if len(found) != 1 || found[0].Socket != broker.ControlSocket || !found[0].Listen || countEnv("CAUTEM_VM_SUPERVISOR_CONTROL_PORT=", "CAUTEM_VM_SUPERVISOR_CONTROL_PORT="+strconv.Itoa(int(supervisorControlPort))) != 1 || countEnv("CAUTEM_VM_SUPERVISOR_ENABLED=", "CAUTEM_VM_SUPERVISOR_ENABLED=1") != 1 {
+		if len(found) != 1 || found[0].Socket != broker.ControlSocket || !found[0].Listen || countEnv("QUARSHELL_VM_SUPERVISOR_CONTROL_PORT=", "QUARSHELL_VM_SUPERVISOR_CONTROL_PORT="+strconv.Itoa(int(supervisorControlPort))) != 1 || countEnv("QUARSHELL_VM_SUPERVISOR_ENABLED=", "QUARSHELL_VM_SUPERVISOR_ENABLED=1") != 1 {
 			return fmt.Errorf("VM worker requires one host-listening supervisor control vsock mapping")
 		}
 	}
@@ -216,7 +216,7 @@ func vmGuestProxyPortFromLaunch(environment []string) int {
 	count := 0
 	for _, entry := range environment {
 		key, value, ok := strings.Cut(entry, "=")
-		if !ok || key != "CAUTEM_VM_NETWORK_PROXY_PORT" {
+		if !ok || key != "QUARSHELL_VM_NETWORK_PROXY_PORT" {
 			continue
 		}
 		parsed, err := strconv.Atoi(value)
@@ -324,7 +324,7 @@ func workerSocketPaths(stateStoreRoot, id string) (string, string, string) {
 }
 
 func workerSocketRoot() string {
-	return filepath.Join("/tmp", fmt.Sprintf("cautem-vm-%d", os.Getuid()))
+	return filepath.Join("/tmp", fmt.Sprintf("quarshell-vm-%d", os.Getuid()))
 }
 
 func sshRelaySocketPath(workerSocket, id string) string {
@@ -351,14 +351,14 @@ func workerPath(configured string) (string, error) {
 	if configured != "" {
 		return validateExecutablePath(configured)
 	}
-	if discovered, err := exec.LookPath("cautem-vm-worker"); err == nil {
+	if discovered, err := exec.LookPath("quarshell-vm-worker"); err == nil {
 		return validateExecutablePath(discovered)
 	}
 	executable, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("resolve Gateway executable for VM worker: %w", err)
 	}
-	sibling := filepath.Join(filepath.Dir(executable), "cautem-vm-worker")
+	sibling := filepath.Join(filepath.Dir(executable), "quarshell-vm-worker")
 	return validateExecutablePath(sibling)
 }
 

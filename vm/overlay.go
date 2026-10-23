@@ -172,7 +172,7 @@ func createSandboxOverlayWithDropins(ctx context.Context, formatterPath string, 
 		}
 	}
 	if len(dropins) > 0 {
-		initDir := filepath.Join(root, "upper", "opt", "cautem", "init.d")
+		initDir := filepath.Join(root, "upper", "opt", "quarshell", "init.d")
 		if err := os.MkdirAll(initDir, 0o755); err != nil {
 			return fmt.Errorf("create guest init drop-in directory: %w", err)
 		}

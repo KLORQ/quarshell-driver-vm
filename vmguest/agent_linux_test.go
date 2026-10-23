@@ -96,6 +96,137 @@ func TestGuestControlRotatesTokenAndAllowsOnlyIdempotentRetry(t *testing.T) {
 	}
 }
 
+func TestRetainedMainProcessStreamsPipesAndAcceptsInput(t *testing.T) {
+	stdinReader, stdinWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdoutReader, stdoutWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderrReader, stderrWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("/bin/sh", "-c", "IFS= read -r value; printf 'out:%s' \"$value\"; printf 'err:%s' \"$value\" >&2; exit 7")
+	command.Stdin, command.Stdout, command.Stderr = stdinReader, stdoutWriter, stderrWriter
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = stdinReader.Close()
+	_ = stdoutWriter.Close()
+	_ = stderrWriter.Close()
+	server := &controlServer{mainProcesses: make(map[string]*retainedMainProcess)}
+	if err := server.retainMainProcess(strings.Repeat("a", 32), command, stdinWriter, stdoutReader, stderrReader, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	guest, host := net.Pipe()
+	defer host.Close()
+	go server.attachMainProcess(guest, strings.Repeat("a", 32))
+	responseData, err := ReadFrame(host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response Response
+	if err := json.Unmarshal(responseData, &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error != "" || response.PID == 0 {
+		t.Fatalf("attachment response = %+v", response)
+	}
+	input, _ := json.Marshal(TerminalFrame{Type: "stdin", Data: []byte("value\n")})
+	if err := WriteFrame(host, input); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr []byte
+	exitCode := -1
+	for exitCode == -1 {
+		encoded, readErr := ReadFrame(host)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		var frame TerminalFrame
+		if err := json.Unmarshal(encoded, &frame); err != nil {
+			t.Fatal(err)
+		}
+		switch frame.Type {
+		case "stdout":
+			stdout = append(stdout, frame.Data...)
+		case "stderr":
+			stderr = append(stderr, frame.Data...)
+		case "exit":
+			exitCode = frame.ExitCode
+		default:
+			t.Fatalf("unexpected frame type %q", frame.Type)
+		}
+	}
+	if string(stdout) != "out:value" || string(stderr) != "err:value" || exitCode != 7 {
+		t.Fatalf("stdout=%q stderr=%q exit=%d", stdout, stderr, exitCode)
+	}
+}
+
+func TestStartWorkloadRetainsNonTTYCanonicalProcessOutput(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.Chmod(workDir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	const sessionID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	poweredOff := make(chan struct{}, 1)
+	server := &controlServer{
+		uid: uint32(os.Geteuid()), gid: uint32(os.Getegid()),
+		powerOffGuest: func() error { poweredOff <- struct{}{}; return nil },
+	}
+	if err := server.startWorkload(context.Background(), Request{
+		Argv:    []string{"/bin/sh", "-c", "printf stdout; printf stderr >&2; exit 9"},
+		WorkDir: workDir, SessionID: sessionID, AwaitMainProcessAttachment: true,
+	}); err != nil {
+		t.Fatalf("startWorkload() error=%v", err)
+	}
+	guest, host := net.Pipe()
+	done := make(chan struct{})
+	go func() { server.attachMainProcess(guest, sessionID); close(done) }()
+	if _, err := ReadFrame(host); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr []byte
+	exitCode := -1
+	for exitCode < 0 {
+		encoded, err := ReadFrame(host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var frame TerminalFrame
+		if err := json.Unmarshal(encoded, &frame); err != nil {
+			t.Fatal(err)
+		}
+		switch frame.Type {
+		case "stdout":
+			stdout = append(stdout, frame.Data...)
+		case "stderr":
+			stderr = append(stderr, frame.Data...)
+		case "exit":
+			exitCode = frame.ExitCode
+		default:
+			t.Fatalf("unexpected frame type %q", frame.Type)
+		}
+	}
+	_ = host.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("main-process attachment did not close")
+	}
+	select {
+	case <-poweredOff:
+	case <-time.After(2 * time.Second):
+		t.Fatal("guest did not power off after attachment finished")
+	}
+	if string(stdout) != "stdout" || string(stderr) != "stderr" || exitCode != 9 {
+		t.Fatalf("stdout=%q stderr=%q exit=%d", stdout, stderr, exitCode)
+	}
+}
+
 func TestGuestControlExecStreamSupportsSeparateOutputAndStdinEOF(t *testing.T) {
 	server := &controlServer{uid: uint32(os.Getuid()), gid: uint32(os.Getgid()), token: strings.Repeat("a", 64)}
 	guest, host := net.Pipe()
@@ -342,9 +473,9 @@ func TestGuestControlRejectsUnsupportedProtocolVersions(t *testing.T) {
 }
 
 func TestGuestWorkloadEnvironmentDoesNotInheritAgentSecrets(t *testing.T) {
-	t.Setenv("CAUTEM_VM_CONTROL_TOKEN", "must-not-leak")
+	t.Setenv("QUARSHELL_VM_CONTROL_TOKEN", "must-not-leak")
 	for _, entry := range guestEnvironment(nil) {
-		if entry == "CAUTEM_VM_CONTROL_TOKEN=must-not-leak" {
+		if entry == "QUARSHELL_VM_CONTROL_TOKEN=must-not-leak" {
 			t.Fatal("guest workload inherited the agent control token")
 		}
 	}
@@ -355,7 +486,7 @@ func TestGuestWorkloadEnvironmentForcesPolicyBrokerAndDropsControlValues(t *test
 		"HTTP_PROXY=http://attacker.invalid:8080",
 		"https_proxy=http://attacker.invalid:8080",
 		"NO_PROXY=example.com",
-		"CAUTEM_VM_NETWORK_BROKER_PORT=9999",
+		"QUARSHELL_VM_NETWORK_BROKER_PORT=9999",
 		"OPENSHELL_OCI_IMAGE_USER=spoofed",
 		"OPENSHELL_SANDBOX_UID=0",
 		"OPENSHELL_SANDBOX_GID=0",
@@ -377,7 +508,7 @@ func TestGuestWorkloadEnvironmentForcesPolicyBrokerAndDropsControlValues(t *test
 		t.Errorf("no_proxy values = %q / %q", values["NO_PROXY"], values["no_proxy"])
 	}
 	for _, key := range []string{
-		"CAUTEM_VM_NETWORK_BROKER_PORT", "OPENSHELL_OCI_IMAGE_USER",
+		"QUARSHELL_VM_NETWORK_BROKER_PORT", "OPENSHELL_OCI_IMAGE_USER",
 		"OPENSHELL_SANDBOX_UID", "OPENSHELL_SANDBOX_GID",
 	} {
 		if _, ok := values[key]; ok {
@@ -409,37 +540,37 @@ func TestGuestWorkloadCredentialAppliesOCIUserFailClosed(t *testing.T) {
 }
 
 func TestNetworkProxyConfigurationRequiresValidPortPair(t *testing.T) {
-	t.Setenv("CAUTEM_VM_NETWORK_PROXY_PORT", "3128")
-	t.Setenv("CAUTEM_VM_NETWORK_BROKER_PORT", "5501")
+	t.Setenv("QUARSHELL_VM_NETWORK_PROXY_PORT", "3128")
+	t.Setenv("QUARSHELL_VM_NETWORK_BROKER_PORT", "5501")
 	proxyPort, brokerPort, err := networkProxyConfigurationFromEnvironment()
 	if err != nil || proxyPort != 3128 || brokerPort != 5501 {
 		t.Fatalf("networkProxyConfigurationFromEnvironment() = (%d, %d, %v)", proxyPort, brokerPort, err)
 	}
-	if os.Getenv("CAUTEM_VM_NETWORK_PROXY_PORT") != "" || os.Getenv("CAUTEM_VM_NETWORK_BROKER_PORT") != "" {
+	if os.Getenv("QUARSHELL_VM_NETWORK_PROXY_PORT") != "" || os.Getenv("QUARSHELL_VM_NETWORK_BROKER_PORT") != "" {
 		t.Fatal("internal network proxy configuration was not removed from guest agent environment")
 	}
-	t.Setenv("CAUTEM_VM_NETWORK_PROXY_PORT", "3128")
-	t.Setenv("CAUTEM_VM_NETWORK_BROKER_PORT", "")
+	t.Setenv("QUARSHELL_VM_NETWORK_PROXY_PORT", "3128")
+	t.Setenv("QUARSHELL_VM_NETWORK_BROKER_PORT", "")
 	if _, _, err := networkProxyConfigurationFromEnvironment(); err == nil {
 		t.Fatal("partial network proxy configuration was accepted")
 	}
 }
 
 func TestGuestRelayConfigurationValidatesPortsAndSupervisorPair(t *testing.T) {
-	t.Setenv("CAUTEM_VM_SSH_RELAY_PORT", "5502")
-	t.Setenv("CAUTEM_VM_SUPERVISOR_CONTROL_PORT", "5503")
-	t.Setenv("CAUTEM_VM_SUPERVISOR_ENABLED", "1")
+	t.Setenv("QUARSHELL_VM_SSH_RELAY_PORT", "5502")
+	t.Setenv("QUARSHELL_VM_SUPERVISOR_CONTROL_PORT", "5503")
+	t.Setenv("QUARSHELL_VM_SUPERVISOR_ENABLED", "1")
 	config, err := relayConfigurationFromEnvironment()
 	if err != nil || config.sshPort != 5502 || config.controlPort != 5503 || !config.supervisor {
 		t.Fatalf("relayConfigurationFromEnvironment() = %+v, %v", config, err)
 	}
-	for _, key := range []string{"CAUTEM_VM_SSH_RELAY_PORT", "CAUTEM_VM_SUPERVISOR_CONTROL_PORT", "CAUTEM_VM_SUPERVISOR_ENABLED"} {
+	for _, key := range []string{"QUARSHELL_VM_SSH_RELAY_PORT", "QUARSHELL_VM_SUPERVISOR_CONTROL_PORT", "QUARSHELL_VM_SUPERVISOR_ENABLED"} {
 		if os.Getenv(key) != "" {
 			t.Errorf("internal VM relay setting %s was not removed", key)
 		}
 	}
-	t.Setenv("CAUTEM_VM_SUPERVISOR_CONTROL_PORT", "5503")
-	t.Setenv("CAUTEM_VM_SUPERVISOR_ENABLED", "")
+	t.Setenv("QUARSHELL_VM_SUPERVISOR_CONTROL_PORT", "5503")
+	t.Setenv("QUARSHELL_VM_SUPERVISOR_ENABLED", "")
 	if _, err := relayConfigurationFromEnvironment(); err == nil || !strings.Contains(err.Error(), "must be configured together") {
 		t.Fatalf("orphaned supervisor control bridge error = %v", err)
 	}
@@ -529,7 +660,7 @@ func TestStartWorkloadWaitsForSupervisorReadiness(t *testing.T) {
 	root := t.TempDir()
 	readyPath := filepath.Join(root, "run", "supervisor.ready")
 	supervisorPath := filepath.Join(root, "fake-supervisor")
-	script := "#!/bin/sh\numask 077\nprintf 'quarshell-supervisor-ready-v2 1000 1001\\n' > \"$CAUTEM_VM_SUPERVISOR_READY_FILE\"\nexec sleep 30\n"
+	script := "#!/bin/sh\numask 077\nprintf 'quarshell-supervisor-ready-v2 1000 1001\\n' > \"$QUARSHELL_VM_SUPERVISOR_READY_FILE\"\nexec sleep 30\n"
 	if err := os.WriteFile(supervisorPath, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	retainedTerminalOutputLimit = 256 << 10
+	retainedTerminalOutputLimit = 1 << 20
 	retainedTerminalFinishedTTL = 15 * time.Minute
 	retainedTerminalMaxSessions = 256
 )

@@ -19,7 +19,7 @@ func TestValidateNetworkBrokerConfigRequiresPrivatePolicyAndSafeEnvironment(t *t
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(dir, "cautem")
+	binary := filepath.Join(dir, "quarshell")
 	if err := os.WriteFile(binary, []byte("proxy executable"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestValidateNetworkBrokerConfigRequiresPrivatePolicyAndSafeEnvironment(t *t
 	config := networkBrokerConfig{
 		Binary: binary, Policy: policy, Socket: filepath.Join(socketDir, "proxy.sock"),
 		SSHSocket: filepath.Join(socketDir, "ssh.sock"), ControlSocket: filepath.Join(socketDir, "control.sock"),
-		LogDir: filepath.Join(dir, "logs"), ProxyEnv: []string{"CAUTEM_SANDBOX_TOKEN=secret"},
+		LogDir: filepath.Join(dir, "logs"), ProxyEnv: []string{"QUARSHELL_SANDBOX_TOKEN=secret"},
 	}
 	if _, err := validateNetworkBrokerConfig(config); err != nil {
 		t.Fatalf("validateNetworkBrokerConfig() error = %v", err)
@@ -48,41 +48,41 @@ func TestValidateNetworkBrokerConfigRequiresPrivatePolicyAndSafeEnvironment(t *t
 		t.Fatalf("unsafe environment error = %v", err)
 	}
 	config.ProxyEnv = []string{
-		"CAUTEM_SANDBOX_TOKEN=secret",
+		"QUARSHELL_SANDBOX_TOKEN=secret",
 		"HTTPS_PROXY=https://proxy.example.test:8443",
 		"https_proxy=https://proxy.example.test:8443",
 		"NO_PROXY=localhost,.internal.test",
-		"CAUTEM_PROXY_AUTH_FILE=/etc/cautem/proxy-auth",
-		"CAUTEM_PROXY_CA_BUNDLE=/etc/cautem/proxy-ca.pem",
-		"CAUTEM_PROXY_CONNECT_BY_HOSTNAME=true",
+		"QUARSHELL_PROXY_AUTH_FILE=/etc/quarshell/proxy-auth",
+		"QUARSHELL_PROXY_CA_BUNDLE=/etc/quarshell/proxy-ca.pem",
+		"QUARSHELL_PROXY_CONNECT_BY_HOSTNAME=true",
 		"OPENSHELL_PROVIDER_SPIFFE_WORKLOAD_API_SOCKET=tcp:192.0.2.10:8081",
 	}
 	environment, err := networkBrokerProcessEnvironment(config)
 	if err != nil {
 		t.Fatalf("networkBrokerProcessEnvironment() error = %v", err)
 	}
-	if !containsEnv(environment, "CAUTEM_SSH_SOCKET="+config.SSHSocket) || !containsEnv(environment, "CAUTEM_SUPERVISOR_CONTROL_SOCKET="+config.ControlSocket) {
+	if !containsEnv(environment, "QUARSHELL_SSH_SOCKET="+config.SSHSocket) || !containsEnv(environment, "QUARSHELL_SUPERVISOR_CONTROL_SOCKET="+config.ControlSocket) {
 		t.Fatalf("proxy relay socket configuration missing: %q", environment)
 	}
-	if containsEnv(environment, "HOME=") || containsEnv(environment, "CAUTEM_VM_CONTROL_TOKEN=") {
+	if containsEnv(environment, "HOME=") || containsEnv(environment, "QUARSHELL_VM_CONTROL_TOKEN=") {
 		t.Fatalf("host ambient environment leaked to proxy: %q", environment)
 	}
 	for _, expected := range []string{
 		"HTTPS_PROXY=https://proxy.example.test:8443", "https_proxy=https://proxy.example.test:8443",
-		"NO_PROXY=localhost,.internal.test", "CAUTEM_PROXY_AUTH_FILE=/etc/cautem/proxy-auth",
-		"CAUTEM_PROXY_CA_BUNDLE=/etc/cautem/proxy-ca.pem",
-		"CAUTEM_PROXY_CONNECT_BY_HOSTNAME=true",
+		"NO_PROXY=localhost,.internal.test", "QUARSHELL_PROXY_AUTH_FILE=/etc/quarshell/proxy-auth",
+		"QUARSHELL_PROXY_CA_BUNDLE=/etc/quarshell/proxy-ca.pem",
+		"QUARSHELL_PROXY_CONNECT_BY_HOSTNAME=true",
 		"OPENSHELL_PROVIDER_SPIFFE_WORKLOAD_API_SOCKET=tcp:192.0.2.10:8081",
 	} {
 		if !containsEnv(environment, expected) {
 			t.Errorf("host broker environment missing operator proxy setting %q: %q", expected, environment)
 		}
 	}
-	config.ProxyEnv = []string{"CAUTEM_SANDBOX_TOKEN=secret", "CAUTEM_SSH_SOCKET=/tmp/attacker.sock"}
+	config.ProxyEnv = []string{"QUARSHELL_SANDBOX_TOKEN=secret", "QUARSHELL_SSH_SOCKET=/tmp/attacker.sock"}
 	if _, err := validateNetworkBrokerConfig(config); err == nil || !strings.Contains(err.Error(), "cannot override") {
 		t.Fatalf("proxy SSH socket override error = %v", err)
 	}
-	config.ProxyEnv = []string{"CAUTEM_SANDBOX_TOKEN=secret"}
+	config.ProxyEnv = []string{"QUARSHELL_SANDBOX_TOKEN=secret"}
 	config.Socket = filepath.Join(socketDir, strings.Repeat("x", 100)+".sock")
 	if _, err := validateNetworkBrokerConfig(config); err == nil || !strings.Contains(err.Error(), "socket path limit") {
 		t.Fatalf("long socket path error = %v", err)
@@ -132,10 +132,10 @@ func TestWaitForProxyControlSocketDoesNotConsumeAConnection(t *testing.T) {
 
 func TestWorkerNetworkBrokerConfigContainsOnlySocketReferences(t *testing.T) {
 	full := &networkBrokerConfig{
-		Binary: "/opt/cautem/cautem", Policy: "/private/policy.yaml",
+		Binary: "/opt/quarshell/quarshell", Policy: "/private/policy.yaml",
 		Socket: "/private/broker.sock", SSHSocket: "/private/ssh.sock",
 		ControlSocket: "/private/control.sock", LogDir: "/private/logs",
-		ProxyEnv: []string{"CAUTEM_GATEWAY_TOKEN=secret-value"},
+		ProxyEnv: []string{"QUARSHELL_GATEWAY_TOKEN=secret-value"},
 	}
 	worker := workerNetworkBrokerConfig(full)
 	if worker == nil {
@@ -159,16 +159,16 @@ func TestPrepareBrokerCredentialMovesBearerIntoPrivateFile(t *testing.T) {
 	}
 	config := networkBrokerConfig{LogDir: filepath.Join(dir, "sandbox")}
 	filtered, path, err := prepareBrokerCredential(config, []string{
-		"CAUTEM_SANDBOX_TOKEN=secret-token",
-		"CAUTEM_GATEWAY_URL=https://gateway.example.test",
+		"QUARSHELL_SANDBOX_TOKEN=secret-token",
+		"QUARSHELL_GATEWAY_URL=https://gateway.example.test",
 	})
 	if err != nil {
 		t.Fatalf("prepareBrokerCredential() error = %v", err)
 	}
-	if containsEnv(filtered, "CAUTEM_SANDBOX_TOKEN=secret-token") || !containsEnv(filtered, "CAUTEM_SANDBOX_TOKEN_FILE="+path) {
+	if containsEnv(filtered, "QUARSHELL_SANDBOX_TOKEN=secret-token") || !containsEnv(filtered, "QUARSHELL_SANDBOX_TOKEN_FILE="+path) {
 		t.Fatalf("broker environment did not replace bearer with file reference: %q", filtered)
 	}
-	if containsEnv(filtered, "CAUTEM_SANDBOX_TOKEN_FILE=") && !containsEnv(filtered, "CAUTEM_SANDBOX_TOKEN_FILE="+path) {
+	if containsEnv(filtered, "QUARSHELL_SANDBOX_TOKEN_FILE=") && !containsEnv(filtered, "QUARSHELL_SANDBOX_TOKEN_FILE="+path) {
 		t.Fatalf("broker environment contains a different auth file path: %q", filtered)
 	}
 	data, err := os.ReadFile(path)
@@ -191,7 +191,7 @@ func TestPrepareBrokerCredentialWritesDescriptorBoundAuthBundle(t *testing.T) {
 		t.Fatal(err)
 	}
 	descriptor := isolation.Descriptor{
-		Version: isolation.DescriptorVersion, BackendName: "cautem/vm", SandboxID: "sandbox-a",
+		Version: isolation.DescriptorVersion, BackendName: "quarshell/vm", SandboxID: "sandbox-a",
 		SessionID: "11111111-1111-4111-8111-111111111111", Generation: "g0000000000000001",
 		RootfsDigest:  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		RuntimeDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -207,24 +207,24 @@ func TestPrepareBrokerCredentialWritesDescriptorBoundAuthBundle(t *testing.T) {
 	}
 	config := networkBrokerConfig{LogDir: filepath.Join(dir, "state")}
 	environment, bundlePath, err := prepareBrokerCredential(config, []string{
-		"CAUTEM_SANDBOX_TOKEN=signed.jwt.value",
-		"CAUTEM_SANDBOX_PROTOCOL_TOKEN=sandbox.jwt.value",
-		"CAUTEM_GATEWAY_TOKEN_EXPIRES_AT=2000000000",
-		"CAUTEM_SANDBOX_TOKEN_EXPIRES_AT=2000000000",
-		"CAUTEM_AUTH_EPOCH=4",
-		"CAUTEM_SESSION_ROTATION=2",
-		"CAUTEM_RUNTIME_GENERATION=g0000000000000002",
-		"CAUTEM_SANDBOX=sandbox-a",
-		"CAUTEM_ADMITTED_ISOLATION_BACKEND=cautem/vm",
-		"CAUTEM_ISOLATION_DESCRIPTOR_PATH=" + descriptorPath,
+		"QUARSHELL_SANDBOX_TOKEN=signed.jwt.value",
+		"QUARSHELL_SANDBOX_PROTOCOL_TOKEN=sandbox.jwt.value",
+		"QUARSHELL_GATEWAY_TOKEN_EXPIRES_AT=2000000000",
+		"QUARSHELL_SANDBOX_TOKEN_EXPIRES_AT=2000000000",
+		"QUARSHELL_AUTH_EPOCH=4",
+		"QUARSHELL_SESSION_ROTATION=2",
+		"QUARSHELL_RUNTIME_GENERATION=g0000000000000002",
+		"QUARSHELL_SANDBOX=sandbox-a",
+		"QUARSHELL_ADMITTED_ISOLATION_BACKEND=quarshell/vm",
+		"QUARSHELL_ISOLATION_DESCRIPTOR_PATH=" + descriptorPath,
 	})
 	if err != nil {
 		t.Fatalf("prepareBrokerCredential() error = %v", err)
 	}
-	if !containsEnv(environment, "CAUTEM_SUPERVISOR_AUTH_BUNDLE_FILE="+bundlePath) || !containsEnv(environment, "CAUTEM_ISOLATION_DESCRIPTOR_PATH="+descriptorPath) {
+	if !containsEnv(environment, "QUARSHELL_SUPERVISOR_AUTH_BUNDLE_FILE="+bundlePath) || !containsEnv(environment, "QUARSHELL_ISOLATION_DESCRIPTOR_PATH="+descriptorPath) {
 		t.Fatalf("host supervisor environment is missing auth/descriptor references: %q", environment)
 	}
-	if containsEnv(environment, "CAUTEM_SANDBOX_TOKEN=signed.jwt.value") {
+	if containsEnv(environment, "QUARSHELL_SANDBOX_TOKEN=signed.jwt.value") {
 		t.Fatal("raw Gateway bearer remains in process environment")
 	}
 	data, err := os.ReadFile(bundlePath)
@@ -236,16 +236,16 @@ func TestPrepareBrokerCredentialWritesDescriptorBoundAuthBundle(t *testing.T) {
 		t.Fatalf("auth bundle = %+v, err = %v", bundle, err)
 	}
 	zeroExpiryEnvironment := []string{
-		"CAUTEM_SANDBOX_TOKEN=gateway.jwt.value",
-		"CAUTEM_SANDBOX_PROTOCOL_TOKEN=sandbox.jwt.value",
-		"CAUTEM_GATEWAY_TOKEN_EXPIRES_AT=0",
-		"CAUTEM_SANDBOX_TOKEN_EXPIRES_AT=0",
-		"CAUTEM_AUTH_EPOCH=4",
-		"CAUTEM_SESSION_ROTATION=2",
-		"CAUTEM_RUNTIME_GENERATION=g0000000000000002",
-		"CAUTEM_SANDBOX=sandbox-a",
-		"CAUTEM_ADMITTED_ISOLATION_BACKEND=cautem/vm",
-		"CAUTEM_ISOLATION_DESCRIPTOR_PATH=" + descriptorPath,
+		"QUARSHELL_SANDBOX_TOKEN=gateway.jwt.value",
+		"QUARSHELL_SANDBOX_PROTOCOL_TOKEN=sandbox.jwt.value",
+		"QUARSHELL_GATEWAY_TOKEN_EXPIRES_AT=0",
+		"QUARSHELL_SANDBOX_TOKEN_EXPIRES_AT=0",
+		"QUARSHELL_AUTH_EPOCH=4",
+		"QUARSHELL_SESSION_ROTATION=2",
+		"QUARSHELL_RUNTIME_GENERATION=g0000000000000002",
+		"QUARSHELL_SANDBOX=sandbox-a",
+		"QUARSHELL_ADMITTED_ISOLATION_BACKEND=quarshell/vm",
+		"QUARSHELL_ISOLATION_DESCRIPTOR_PATH=" + descriptorPath,
 	}
 	_, zeroExpiryPath, err := prepareBrokerCredential(networkBrokerConfig{LogDir: filepath.Join(dir, "zero-expiry-state")}, zeroExpiryEnvironment)
 	if err != nil {
@@ -266,7 +266,7 @@ func TestPrepareBrokerCredentialWritesDescriptorBoundAuthBundle(t *testing.T) {
 		{name: "missing paired expiry", mutate: func(environment []string) []string {
 			filtered := environment[:0]
 			for _, entry := range environment {
-				if !strings.HasPrefix(entry, "CAUTEM_GATEWAY_TOKEN_EXPIRES_AT=") {
+				if !strings.HasPrefix(entry, "QUARSHELL_GATEWAY_TOKEN_EXPIRES_AT=") {
 					filtered = append(filtered, entry)
 				}
 			}
@@ -274,8 +274,8 @@ func TestPrepareBrokerCredentialWritesDescriptorBoundAuthBundle(t *testing.T) {
 		}},
 		{name: "expiry exceeds signed bundle range", mutate: func(environment []string) []string {
 			for index, entry := range environment {
-				if strings.HasPrefix(entry, "CAUTEM_GATEWAY_TOKEN_EXPIRES_AT=") {
-					environment[index] = "CAUTEM_GATEWAY_TOKEN_EXPIRES_AT=9223372036854775808"
+				if strings.HasPrefix(entry, "QUARSHELL_GATEWAY_TOKEN_EXPIRES_AT=") {
+					environment[index] = "QUARSHELL_GATEWAY_TOKEN_EXPIRES_AT=9223372036854775808"
 				}
 			}
 			return environment
@@ -296,12 +296,12 @@ func TestPrepareBrokerCredentialWritesDescriptorBoundAuthBundle(t *testing.T) {
 }
 
 func TestWithSupervisorTokenReplacesConfiguredValueWithoutMutatingInput(t *testing.T) {
-	input := []string{"CAUTEM_SANDBOX_TOKEN=stale", "CAUTEM_GATEWAY_URL=https://gateway.example"}
+	input := []string{"QUARSHELL_SANDBOX_TOKEN=stale", "QUARSHELL_GATEWAY_URL=https://gateway.example"}
 	got := withSupervisorToken(input, "fresh")
-	if len(input) != 2 || input[0] != "CAUTEM_SANDBOX_TOKEN=stale" {
+	if len(input) != 2 || input[0] != "QUARSHELL_SANDBOX_TOKEN=stale" {
 		t.Fatalf("input environment mutated: %q", input)
 	}
-	if len(got) != 2 || got[0] != "CAUTEM_GATEWAY_URL=https://gateway.example" || got[1] != "CAUTEM_SANDBOX_TOKEN=fresh" {
+	if len(got) != 2 || got[0] != "QUARSHELL_GATEWAY_URL=https://gateway.example" || got[1] != "QUARSHELL_SANDBOX_TOKEN=fresh" {
 		t.Fatalf("supervisor environment = %q", got)
 	}
 }
@@ -316,7 +316,7 @@ func TestPrepareBrokerCredentialRejectsUnsafeStalePath(t *testing.T) {
 	if err := os.Symlink(filepath.Join(dir, "outside"), path); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := prepareBrokerCredential(config, []string{"CAUTEM_SANDBOX_TOKEN=secret"}); err == nil {
+	if _, _, err := prepareBrokerCredential(config, []string{"QUARSHELL_SANDBOX_TOKEN=secret"}); err == nil {
 		t.Fatal("prepareBrokerCredential() accepted stale symlink")
 	}
 }
@@ -326,7 +326,7 @@ func TestValidateWorkerNetworkBrokerRequiresHostListeningMapping(t *testing.T) {
 		NetworkBroker: &networkBrokerConfig{Socket: "/tmp/broker.sock"},
 		Launch: KrunLaunchConfig{
 			VsockPorts: []KrunVsockPort{{Port: networkBrokerVsockPort, Socket: "/tmp/broker.sock", Listen: true}},
-			Env:        []string{"CAUTEM_VM_NETWORK_BROKER_PORT=5501", "CAUTEM_VM_NETWORK_PROXY_PORT=3128"},
+			Env:        []string{"QUARSHELL_VM_NETWORK_BROKER_PORT=5501", "QUARSHELL_VM_NETWORK_PROXY_PORT=3128"},
 		},
 	}
 	if err := validateWorkerNetworkBroker(config); err != nil {
@@ -342,7 +342,7 @@ func TestValidateWorkerNetworkBrokerRequiresHostListeningMapping(t *testing.T) {
 		t.Fatalf("guest-initiated broker mapping error = %v", err)
 	}
 	config.Launch.VsockPorts[0].Listen = true
-	config.Launch.Env = []string{"CAUTEM_VM_NETWORK_BROKER_PORT=5501"}
+	config.Launch.Env = []string{"QUARSHELL_VM_NETWORK_BROKER_PORT=5501"}
 	if err := validateWorkerNetworkBroker(config); err == nil || !strings.Contains(err.Error(), "guest proxy port") {
 		t.Fatalf("missing proxy port error = %v", err)
 	}
@@ -351,19 +351,19 @@ func TestValidateWorkerNetworkBrokerRequiresHostListeningMapping(t *testing.T) {
 func TestValidateWorkerRelayMappingsRequireExpectedVsockDirection(t *testing.T) {
 	config := workerConfig{
 		NetworkBroker: &networkBrokerConfig{
-			Socket: "/tmp/cautem-vm/proxy-vsock.sock", SSHSocket: "/tmp/cautem-vm/ssh.sock",
-			ControlSocket: "/tmp/cautem-vm/control.sock",
+			Socket: "/tmp/quarshell-vm/proxy-vsock.sock", SSHSocket: "/tmp/quarshell-vm/ssh.sock",
+			ControlSocket: "/tmp/quarshell-vm/control.sock",
 		},
 		Launch: KrunLaunchConfig{
 			VsockPorts: []KrunVsockPort{
-				{Port: networkBrokerVsockPort, Socket: "/tmp/cautem-vm/proxy-vsock.sock", Listen: true},
-				{Port: sshRelayVsockPort, Socket: "/tmp/cautem-vm/ssh.sock", Listen: true},
-				{Port: supervisorControlPort, Socket: "/tmp/cautem-vm/control.sock", Listen: true},
+				{Port: networkBrokerVsockPort, Socket: "/tmp/quarshell-vm/proxy-vsock.sock", Listen: true},
+				{Port: sshRelayVsockPort, Socket: "/tmp/quarshell-vm/ssh.sock", Listen: true},
+				{Port: supervisorControlPort, Socket: "/tmp/quarshell-vm/control.sock", Listen: true},
 			},
 			Env: []string{
-				"CAUTEM_VM_NETWORK_BROKER_PORT=5501", "CAUTEM_VM_NETWORK_PROXY_PORT=3128",
-				"CAUTEM_VM_SSH_RELAY_PORT=5502", "CAUTEM_VM_SUPERVISOR_CONTROL_PORT=5503",
-				"CAUTEM_VM_SUPERVISOR_ENABLED=1",
+				"QUARSHELL_VM_NETWORK_BROKER_PORT=5501", "QUARSHELL_VM_NETWORK_PROXY_PORT=3128",
+				"QUARSHELL_VM_SSH_RELAY_PORT=5502", "QUARSHELL_VM_SUPERVISOR_CONTROL_PORT=5503",
+				"QUARSHELL_VM_SUPERVISOR_ENABLED=1",
 			},
 		},
 	}
@@ -382,8 +382,8 @@ func TestValidateWorkerRelayMappingsRequireExpectedVsockDirection(t *testing.T) 
 }
 
 func TestNetworkBrokerEnvironmentDoesNotInheritHostSecretsOrLoaderOverrides(t *testing.T) {
-	env := networkBrokerEnvironment([]string{"TOKEN_GRANTS={}", "CAUTEM_SANDBOX_TOKEN=secret"})
-	if len(env) != 3 || env[0] != "CAUTEM_SANDBOX_TOKEN=secret" || env[1] != "PATH=/usr/bin:/bin" || env[2] != "TOKEN_GRANTS={}" {
+	env := networkBrokerEnvironment([]string{"TOKEN_GRANTS={}", "QUARSHELL_SANDBOX_TOKEN=secret"})
+	if len(env) != 3 || env[0] != "PATH=/usr/bin:/bin" || env[1] != "QUARSHELL_SANDBOX_TOKEN=secret" || env[2] != "TOKEN_GRANTS={}" {
 		t.Fatalf("network broker environment = %q", env)
 	}
 }

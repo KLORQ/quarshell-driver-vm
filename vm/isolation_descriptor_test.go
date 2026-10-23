@@ -35,7 +35,7 @@ func TestBuildVMIsolationDescriptorBindsDurableBootClaimsWithoutSecrets(t *testi
 	if err := json.Unmarshal(encoded, &descriptor); err != nil {
 		t.Fatal(err)
 	}
-	if descriptor.BackendName != "cautem/vm" || descriptor.SandboxID != state.ID || descriptor.SessionID != state.RuntimeSessionID || descriptor.Generation != state.RuntimeGeneration || descriptor.RootfsDigest != state.RootfsSourceDigest || descriptor.RuntimeDigest != state.RuntimeDigest {
+	if descriptor.BackendName != "quarshell/vm" || descriptor.SandboxID != state.ID || descriptor.SessionID != state.RuntimeSessionID || descriptor.Generation != state.RuntimeGeneration || descriptor.RootfsDigest != state.RootfsSourceDigest || descriptor.RuntimeDigest != state.RuntimeDigest {
 		t.Fatalf("descriptor claims = %+v, do not match durable state %+v", descriptor, state)
 	}
 	for _, private := range [][]byte{identity.ClientKey, identity.ClientCert, identity.ClientCA} {
@@ -147,7 +147,7 @@ func TestBuildVMIsolationDescriptorBindsDurableBootClaimsWithoutSecrets(t *testi
 func TestWriteVMIsolationDescriptorIsAtomicPrivateAndRejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
 	data, err := isolation.EncodeDescriptor(isolation.Descriptor{
-		Version: isolation.DescriptorVersion, BackendName: "cautem/vm", SandboxID: "sandbox-1",
+		Version: isolation.DescriptorVersion, BackendName: "quarshell/vm", SandboxID: "sandbox-1",
 		SessionID: "session-1", Generation: "generation-1",
 		RootfsDigest: "sha256:" + strings.Repeat("a", 64), RuntimeDigest: "sha256:" + strings.Repeat("b", 64),
 		Payload: json.RawMessage(`{"worker_id":"sandbox-1"}`),

@@ -1,4 +1,4 @@
-// Command cautem-vm-bootstrap builds the ext4 bootstrap disk used by VM guests.
+// Command quarshell-vm-bootstrap builds the ext4 bootstrap disk used by VM guests.
 package main
 
 import (
@@ -20,10 +20,10 @@ func main() {
 	size := flag.String("size", "512M", "filesystem size")
 	flag.Parse()
 	if *out == "" || *agent == "" || *umoci == "" {
-		fmt.Fprintln(os.Stderr, "usage: cautem-vm-bootstrap --out FILE --guest-agent FILE --umoci FILE")
+		fmt.Fprintln(os.Stderr, "usage: quarshell-vm-bootstrap --out FILE --guest-agent FILE --umoci FILE")
 		os.Exit(2)
 	}
-	root, err := os.MkdirTemp("", "cautem-vm-bootstrap-*")
+	root, err := os.MkdirTemp("", "quarshell-vm-bootstrap-*")
 	if err != nil {
 		fatal(err)
 	}
@@ -44,7 +44,7 @@ func main() {
 	if err := vm.WriteGuestInit(root); err != nil {
 		fatal(err)
 	}
-	bin := filepath.Join(root, "opt", "cautem", "bin")
+	bin := filepath.Join(root, "opt", "quarshell", "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		fatal(err)
 	}
@@ -62,7 +62,7 @@ func main() {
 		}
 	}
 	_ = os.Remove(*out)
-	command := exec.Command(formatter, "-q", "-F", "-t", "ext4", "-d", root, "-L", "cautem-bootstrap", *out, *size)
+	command := exec.Command(formatter, "-q", "-F", "-t", "ext4", "-d", root, "-L", "quarshell-bootstrap", *out, *size)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	if err := command.Run(); err != nil {
@@ -89,6 +89,6 @@ func copyExecutable(source, destination string) error {
 }
 
 func fatal(err error) {
-	fmt.Fprintln(os.Stderr, "cautem-vm-bootstrap:", err)
+	fmt.Fprintln(os.Stderr, "quarshell-vm-bootstrap:", err)
 	os.Exit(1)
 }

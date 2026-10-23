@@ -86,30 +86,30 @@ func DefaultHostConfig() HostConfig {
 	}
 	defaultImage := strings.TrimSpace(os.Getenv("OPENSHELL_SANDBOX_IMAGE"))
 	bootstrapImage := strings.TrimSpace(os.Getenv("OPENSHELL_VM_BOOTSTRAP_IMAGE"))
-	bootstrapDisk := strings.TrimSpace(os.Getenv("CAUTEM_VM_BOOTSTRAP_DISK"))
-	kvmDevice := strings.TrimSpace(os.Getenv("CAUTEM_KVM_DEVICE"))
+	bootstrapDisk := strings.TrimSpace(os.Getenv("QUARSHELL_VM_BOOTSTRAP_DISK"))
+	kvmDevice := strings.TrimSpace(os.Getenv("QUARSHELL_KVM_DEVICE"))
 	if kvmDevice == "" {
 		kvmDevice = "/dev/kvm"
 	}
 	stateDir := defaultStateDir()
 	rootfsTarDir := strings.TrimSpace(os.Getenv("OPENSHELL_VM_ROOTFS_TAR_STAGING_DIR"))
 	rootfsImageCacheMaxBytes := defaultRootfsImageCacheMaxBytes
-	if raw := strings.TrimSpace(os.Getenv("CAUTEM_VM_IMAGE_CACHE_MAX_BYTES")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("QUARSHELL_VM_IMAGE_CACHE_MAX_BYTES")); raw != "" {
 		if parsed, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil && parsed > 0 {
 			rootfsImageCacheMaxBytes = parsed
 		}
 	}
-	guestAgentPath := strings.TrimSpace(os.Getenv("CAUTEM_VM_GUEST_AGENT"))
+	guestAgentPath := strings.TrimSpace(os.Getenv("QUARSHELL_VM_GUEST_AGENT"))
 	if guestAgentPath == "" {
 		guestAgentPath = defaultGuestAgentPath()
 	}
-	umociPath := strings.TrimSpace(os.Getenv("CAUTEM_VM_UMOCI"))
+	umociPath := strings.TrimSpace(os.Getenv("QUARSHELL_VM_UMOCI"))
 	if umociPath == "" {
 		umociPath = defaultGuestUMOCIPath(guestAgentPath)
 	}
-	workerPath := strings.TrimSpace(os.Getenv("CAUTEM_VM_WORKER"))
-	workerTeamID := strings.TrimSpace(os.Getenv("CAUTEM_VM_WORKER_TEAM_ID"))
-	workerSHA256 := strings.TrimSpace(os.Getenv("CAUTEM_VM_WORKER_SHA256"))
+	workerPath := strings.TrimSpace(os.Getenv("QUARSHELL_VM_WORKER"))
+	workerTeamID := strings.TrimSpace(os.Getenv("QUARSHELL_VM_WORKER_TEAM_ID"))
+	workerSHA256 := strings.TrimSpace(os.Getenv("QUARSHELL_VM_WORKER_SHA256"))
 	grpcEndpoint := strings.TrimSpace(os.Getenv("OPENSHELL_GRPC_ENDPOINT"))
 	config := normalizeHostConfig(HostConfig{
 		RuntimeDir: runtimeDir, GRPCEndpoint: grpcEndpoint, DefaultImage: defaultImage, BootstrapImage: bootstrapImage, BootstrapDisk: bootstrapDisk, KVMDevice: kvmDevice, StateDir: stateDir,
@@ -142,7 +142,7 @@ func defaultGuestAgentPath() string {
 	if err != nil {
 		return ""
 	}
-	path := filepath.Join(filepath.Dir(executable), "cautem-vm-guest-agent-linux-"+runtime.GOARCH)
+	path := filepath.Join(filepath.Dir(executable), "quarshell-vm-guest-agent-linux-"+runtime.GOARCH)
 	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
 		return path
 	}
@@ -153,7 +153,7 @@ func defaultGuestUMOCIPath(guestAgentPath string) string {
 	if guestAgentPath == "" {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(guestAgentPath), "cautem-vm-umoci-linux-"+runtime.GOARCH)
+	return filepath.Join(filepath.Dir(guestAgentPath), "quarshell-vm-umoci-linux-"+runtime.GOARCH)
 }
 
 func normalizeHostConfig(config HostConfig) HostConfig {

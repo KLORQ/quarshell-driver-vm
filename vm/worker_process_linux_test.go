@@ -18,11 +18,11 @@ import (
 )
 
 func TestHostNamespaceCanConnectWorkerNamespaceUnixSocket(t *testing.T) {
-	if os.Getenv("CAUTEM_VM_SOCKET_NAMESPACE_CHILD") == "1" {
+	if os.Getenv("QUARSHELL_VM_SOCKET_NAMESPACE_CHILD") == "1" {
 		if os.Geteuid() != 0 || os.Getegid() != 0 {
 			t.Fatalf("worker namespace identity = %d:%d; want mapped namespace root", os.Geteuid(), os.Getegid())
 		}
-		path := os.Getenv("CAUTEM_VM_NAMESPACE_SOCKET")
+		path := os.Getenv("QUARSHELL_VM_NAMESPACE_SOCKET")
 		listener, err := net.Listen("unix", path)
 		if err != nil {
 			t.Fatalf("listen on worker namespace Unix socket: %v", err)
@@ -48,8 +48,8 @@ func TestHostNamespaceCanConnectWorkerNamespaceUnixSocket(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "worker.sock")
 	command := exec.Command(os.Args[0], "-test.run=^TestHostNamespaceCanConnectWorkerNamespaceUnixSocket$")
 	command.Env = append(os.Environ(),
-		"CAUTEM_VM_SOCKET_NAMESPACE_CHILD=1",
-		"CAUTEM_VM_NAMESPACE_SOCKET="+socketPath,
+		"QUARSHELL_VM_SOCKET_NAMESPACE_CHILD=1",
+		"QUARSHELL_VM_NAMESPACE_SOCKET="+socketPath,
 	)
 	command.SysProcAttr = workerProcessAttributes()
 	command.SysProcAttr.Cloneflags = unix.CLONE_NEWUSER | unix.CLONE_NEWNS
@@ -154,10 +154,10 @@ func TestWorkerIsolationNamespaceSubprocess(t *testing.T) {
 	if os.Getuid() == 0 || os.Getgid() == 0 {
 		t.Skip("worker isolation probe requires a non-root host identity")
 	}
-	if os.Getenv("CAUTEM_VM_NAMESPACE_CHILD") == "1" {
+	if os.Getenv("QUARSHELL_VM_NAMESPACE_CHILD") == "1" {
 		config := workerIsolationConfig{
-			HostMountNamespace: os.Getenv("CAUTEM_VM_PARENT_MOUNT_NS"),
-			HostUserNamespace:  os.Getenv("CAUTEM_VM_PARENT_USER_NS"),
+			HostMountNamespace: os.Getenv("QUARSHELL_VM_PARENT_MOUNT_NS"),
+			HostUserNamespace:  os.Getenv("QUARSHELL_VM_PARENT_USER_NS"),
 		}
 		if err := prepareWorkerIsolation(config); err != nil {
 			t.Fatalf("prepare worker namespace: %v", err)
@@ -185,9 +185,9 @@ func TestWorkerIsolationNamespaceSubprocess(t *testing.T) {
 	defer writer.Close()
 	command.ExtraFiles = []*os.File{reader}
 	command.Env = append(os.Environ(),
-		"CAUTEM_VM_NAMESPACE_CHILD=1",
-		"CAUTEM_VM_PARENT_MOUNT_NS="+parent.HostMountNamespace,
-		"CAUTEM_VM_PARENT_USER_NS="+parent.HostUserNamespace,
+		"QUARSHELL_VM_NAMESPACE_CHILD=1",
+		"QUARSHELL_VM_PARENT_MOUNT_NS="+parent.HostMountNamespace,
+		"QUARSHELL_VM_PARENT_USER_NS="+parent.HostUserNamespace,
 	)
 	command.SysProcAttr = workerProcessAttributes()
 	var output bytes.Buffer

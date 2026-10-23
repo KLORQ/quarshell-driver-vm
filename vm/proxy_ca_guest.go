@@ -18,7 +18,7 @@ func guestProxyCABundle(proxyEnv []string) (string, error) {
 	var path string
 	for _, entry := range proxyEnv {
 		key, value, ok := strings.Cut(entry, "=")
-		if ok && key == "CAUTEM_PROXY_CA_BUNDLE" {
+		if ok && key == "QUARSHELL_PROXY_CA_BUNDLE" {
 			path = strings.TrimSpace(value)
 		}
 	}

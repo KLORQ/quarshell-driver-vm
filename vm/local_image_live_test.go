@@ -12,14 +12,14 @@ import (
 )
 
 func TestLiveLocalOCIEngineImport(t *testing.T) {
-	if os.Getenv("CAUTEM_VM_LOCAL_IMAGE_ACCEPTANCE") != "1" {
-		t.Skip("set CAUTEM_VM_LOCAL_IMAGE_ACCEPTANCE=1 to test local Docker/Podman image import")
+	if os.Getenv("QUARSHELL_VM_LOCAL_IMAGE_ACCEPTANCE") != "1" {
+		t.Skip("set QUARSHELL_VM_LOCAL_IMAGE_ACCEPTANCE=1 to test local Docker/Podman image import")
 	}
-	reference := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_LOCAL_IMAGE"))
+	reference := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_LOCAL_IMAGE"))
 	if reference == "" {
-		t.Fatal("CAUTEM_VM_TEST_LOCAL_IMAGE must name an image already present in Docker or Podman")
+		t.Fatal("QUARSHELL_VM_TEST_LOCAL_IMAGE must name an image already present in Docker or Podman")
 	}
-	formatter := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_E2FS_FORMATTER"))
+	formatter := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_E2FS_FORMATTER"))
 	if formatter == "" {
 		var err error
 		formatter, err = resolveExt4Formatter()
@@ -27,7 +27,7 @@ func TestLiveLocalOCIEngineImport(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	guestAgent := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_GUEST_AGENT"))
+	guestAgent := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_GUEST_AGENT"))
 	prepared, resolved, found, err := prepareLocalOCIImage(context.Background(), reference, t.TempDir(), formatter, guestAgent, defaultRootfsImageCacheMaxBytes, nil)
 	if err != nil {
 		t.Fatalf("import local image %q from Docker/Podman: %v", reference, err)

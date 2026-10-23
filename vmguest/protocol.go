@@ -10,7 +10,7 @@ const (
 	ControlPort                    = 5500
 	FrameMax                       = 64 << 20
 	ProtocolVersion                = 1
-	SupervisorControlCredentialDir = "/run/cautem/supervisor-control-private"
+	SupervisorControlCredentialDir = "/run/quarshell/supervisor-control-private"
 )
 
 type Request struct {

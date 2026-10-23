@@ -23,16 +23,16 @@ import (
 
 	core "github.com/KLORQ/quarshell-core"
 	"github.com/KLORQ/quarshell-core/isolation"
-	corepolicy "github.com/KLORQ/quarshell-core/policy"
 	"github.com/KLORQ/quarshell-driver-vm/vmguest"
 	"github.com/KLORQ/quarshell-driver/driver"
+	corepolicy "github.com/KLORQ/quarshell-policy/corepolicy"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 )
 
 const (
 	defaultVMStartupTimeout             = 2 * time.Minute
 	workerStopTimeout                   = 10 * time.Second
-	guestSupervisorControlCredentialDir = "/run/cautem/supervisor-control-private"
+	guestSupervisorControlCredentialDir = "/run/quarshell/supervisor-control-private"
 )
 
 func (d *Driver) Start(ctx context.Context, id core.ID) error {
@@ -97,7 +97,7 @@ func validOpenShellRuntimeGeneration(value string) bool {
 		return false
 	}
 	for _, r := range value {
-		if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
 			return false
 		}
 	}
@@ -215,13 +215,13 @@ func (d *Driver) start(ctx context.Context, id core.ID, credentials driver.Runti
 }
 
 func withSandboxSessionCredentials(entries []string, credentials driver.RuntimeLaunchCredentials) []string {
-	for _, key := range []string{"CAUTEM_SANDBOX_PROTOCOL_TOKEN", "CAUTEM_RUNTIME_GENERATION", "CAUTEM_AUTH_EPOCH"} {
+	for _, key := range []string{"QUARSHELL_SANDBOX_PROTOCOL_TOKEN", "QUARSHELL_RUNTIME_GENERATION", "QUARSHELL_AUTH_EPOCH"} {
 		entries = withoutEnvironmentKey(entries, key)
 	}
 	return append(entries,
-		"CAUTEM_SANDBOX_PROTOCOL_TOKEN="+credentials.SandboxToken,
-		"CAUTEM_RUNTIME_GENERATION="+credentials.RuntimeGeneration,
-		"CAUTEM_AUTH_EPOCH="+strconv.FormatUint(credentials.CredentialEpoch, 10),
+		"QUARSHELL_SANDBOX_PROTOCOL_TOKEN="+credentials.SandboxToken,
+		"QUARSHELL_RUNTIME_GENERATION="+credentials.RuntimeGeneration,
+		"QUARSHELL_AUTH_EPOCH="+strconv.FormatUint(credentials.CredentialEpoch, 10),
 	)
 }
 
@@ -234,13 +234,13 @@ func cloneRuntimeVerificationKeys(keys []driver.RuntimeVerificationKey) []driver
 }
 
 func withSupervisorBoundaryKeys(entries []string, gatewayID, sandboxID string) []string {
-	entries = withoutEnvironmentKey(entries, "CAUTEM_GATEWAY_ID")
-	entries = withoutEnvironmentKey(entries, "CAUTEM_GATEWAY_VERIFICATION_KEYS_FILE")
-	entries = withoutEnvironmentKey(entries, "CAUTEM_GATEWAY_SANDBOX_ID")
+	entries = withoutEnvironmentKey(entries, "QUARSHELL_GATEWAY_ID")
+	entries = withoutEnvironmentKey(entries, "QUARSHELL_GATEWAY_VERIFICATION_KEYS_FILE")
+	entries = withoutEnvironmentKey(entries, "QUARSHELL_GATEWAY_SANDBOX_ID")
 	return append(entries,
-		"CAUTEM_GATEWAY_ID="+gatewayID,
-		"CAUTEM_GATEWAY_VERIFICATION_KEYS_FILE=/run/cautem/supervisor-control-private/gateway-verification-keys.json",
-		"CAUTEM_GATEWAY_SANDBOX_ID="+sandboxID,
+		"QUARSHELL_GATEWAY_ID="+gatewayID,
+		"QUARSHELL_GATEWAY_VERIFICATION_KEYS_FILE=/run/quarshell/supervisor-control-private/gateway-verification-keys.json",
+		"QUARSHELL_GATEWAY_SANDBOX_ID="+sandboxID,
 	)
 }
 
@@ -263,38 +263,38 @@ func withoutEnvironmentKey(entries []string, key string) []string {
 }
 
 func withSupervisorToken(entries []string, token string) []string {
-	environment := withoutEnvironmentKey(entries, "CAUTEM_SANDBOX_TOKEN")
-	return append(environment, "CAUTEM_SANDBOX_TOKEN="+token)
+	environment := withoutEnvironmentKey(entries, "QUARSHELL_SANDBOX_TOKEN")
+	return append(environment, "QUARSHELL_SANDBOX_TOKEN="+token)
 }
 
 func withGatewaySandboxID(entries []string, sandboxID string) []string {
-	environment := withoutEnvironmentKey(entries, "CAUTEM_GATEWAY_SANDBOX_ID")
+	environment := withoutEnvironmentKey(entries, "QUARSHELL_GATEWAY_SANDBOX_ID")
 	if sandboxID == "" {
 		return environment
 	}
-	return append(environment, "CAUTEM_GATEWAY_SANDBOX_ID="+sandboxID)
+	return append(environment, "QUARSHELL_GATEWAY_SANDBOX_ID="+sandboxID)
 }
 
 func withSupervisorCredentials(entries []string, credentials driver.RuntimeLaunchCredentials) []string {
 	keys := []string{
-		"CAUTEM_SANDBOX_TOKEN", "CAUTEM_SANDBOX_PROTOCOL_TOKEN",
-		"CAUTEM_GATEWAY_TOKEN_EXPIRES_AT", "CAUTEM_SANDBOX_TOKEN_EXPIRES_AT",
-		"CAUTEM_AUTH_EPOCH", "CAUTEM_SESSION_ROTATION",
-		"CAUTEM_RUNTIME_GENERATION",
-		"CAUTEM_SESSION_ID",
+		"QUARSHELL_SANDBOX_TOKEN", "QUARSHELL_SANDBOX_PROTOCOL_TOKEN",
+		"QUARSHELL_GATEWAY_TOKEN_EXPIRES_AT", "QUARSHELL_SANDBOX_TOKEN_EXPIRES_AT",
+		"QUARSHELL_AUTH_EPOCH", "QUARSHELL_SESSION_ROTATION",
+		"QUARSHELL_RUNTIME_GENERATION",
+		"QUARSHELL_SESSION_ID",
 	}
 	for _, key := range keys {
 		entries = withoutEnvironmentKey(entries, key)
 	}
 	return append(entries,
-		"CAUTEM_SANDBOX_TOKEN="+credentials.GatewayToken,
-		"CAUTEM_SANDBOX_PROTOCOL_TOKEN="+credentials.SandboxToken,
-		"CAUTEM_GATEWAY_TOKEN_EXPIRES_AT="+strconv.FormatInt(credentialExpiryUnix(credentials.GatewayExpiresAt), 10),
-		"CAUTEM_SANDBOX_TOKEN_EXPIRES_AT="+strconv.FormatInt(credentialExpiryUnix(credentials.SandboxExpiresAt), 10),
-		"CAUTEM_AUTH_EPOCH="+strconv.FormatUint(credentials.CredentialEpoch, 10),
-		"CAUTEM_SESSION_ROTATION="+strconv.FormatUint(credentials.SessionRotation, 10),
-		"CAUTEM_RUNTIME_GENERATION="+credentials.RuntimeGeneration,
-		"CAUTEM_SESSION_ID="+credentials.SessionID,
+		"QUARSHELL_SANDBOX_TOKEN="+credentials.GatewayToken,
+		"QUARSHELL_SANDBOX_PROTOCOL_TOKEN="+credentials.SandboxToken,
+		"QUARSHELL_GATEWAY_TOKEN_EXPIRES_AT="+strconv.FormatInt(credentialExpiryUnix(credentials.GatewayExpiresAt), 10),
+		"QUARSHELL_SANDBOX_TOKEN_EXPIRES_AT="+strconv.FormatInt(credentialExpiryUnix(credentials.SandboxExpiresAt), 10),
+		"QUARSHELL_AUTH_EPOCH="+strconv.FormatUint(credentials.CredentialEpoch, 10),
+		"QUARSHELL_SESSION_ROTATION="+strconv.FormatUint(credentials.SessionRotation, 10),
+		"QUARSHELL_RUNTIME_GENERATION="+credentials.RuntimeGeneration,
+		"QUARSHELL_SESSION_ID="+credentials.SessionID,
 	)
 }
 
@@ -378,25 +378,25 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 		RootDisk: state.Rootfs, OverlayDisk: overlayPath, ImageDisk: state.WorkloadDisk, ServiceDataDisk: state.ServiceDataDisk,
 		VCPUs: state.VCPUs, MemoryMiB: state.MemoryMiB, WorkDir: "/",
 		KrunLogLevel: configuredKrunLogLevel(d.host),
-		ExecPath:     "/bin/sh", Args: []string{"/opt/cautem/vm-init"},
-		Env:         []string{"CAUTEM_VM_CONTROL_TOKEN=" + controlToken},
+		ExecPath:     "/bin/sh", Args: []string{"/opt/quarshell/vm-init"},
+		Env:         []string{"QUARSHELL_VM_CONTROL_TOKEN=" + controlToken},
 		ConsolePath: consolePath, VsockPort: guestControlPort, VsockSocket: guestSocket,
 	}
 	if d.host.SandboxUID != nil {
-		launch.Env = append(launch.Env, "CAUTEM_VM_SANDBOX_UID="+strconv.FormatUint(uint64(*d.host.SandboxUID), 10))
+		launch.Env = append(launch.Env, "QUARSHELL_VM_SANDBOX_UID="+strconv.FormatUint(uint64(*d.host.SandboxUID), 10))
 	}
 	if d.host.SandboxGID != nil {
-		launch.Env = append(launch.Env, "CAUTEM_VM_SANDBOX_GID="+strconv.FormatUint(uint64(*d.host.SandboxGID), 10))
+		launch.Env = append(launch.Env, "QUARSHELL_VM_SANDBOX_GID="+strconv.FormatUint(uint64(*d.host.SandboxGID), 10))
 	}
 	if state.WorkloadDisk != "" {
-		launch.Env = append(launch.Env, "CAUTEM_VM_IMAGE_DISK=1")
+		launch.Env = append(launch.Env, "QUARSHELL_VM_IMAGE_DISK=1")
 	}
 	if state.ServiceDataDisk != "" {
 		device := "/dev/vdc"
 		if state.WorkloadDisk != "" {
 			device = "/dev/vdd"
 		}
-		launch.Env = append(launch.Env, "CAUTEM_VM_SERVICE_DATA_DISK="+device)
+		launch.Env = append(launch.Env, "QUARSHELL_VM_SERVICE_DATA_DISK="+device)
 	}
 	var proxyCABundle []byte
 	var controlIdentity *vmControlIdentity
@@ -411,8 +411,8 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 		proxyCABundle = []byte(proxyCABundlePEM)
 		proxyPort := vmGuestProxyPort(spec.ProxyPort)
 		launch.Env = append(launch.Env,
-			"CAUTEM_VM_NETWORK_BROKER_PORT="+strconv.Itoa(int(networkBrokerVsockPort)),
-			"CAUTEM_VM_NETWORK_PROXY_PORT="+strconv.Itoa(proxyPort),
+			"QUARSHELL_VM_NETWORK_BROKER_PORT="+strconv.Itoa(int(networkBrokerVsockPort)),
+			"QUARSHELL_VM_NETWORK_PROXY_PORT="+strconv.Itoa(proxyPort),
 		)
 		launch.VsockPorts = append(launch.VsockPorts, KrunVsockPort{Port: networkBrokerVsockPort, Socket: brokerVsockSocket, Listen: true})
 		proxyEnv := append([]string(nil), spec.ProxyEnv...)
@@ -422,28 +422,28 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 		if gatewayURL == "" {
 			gatewayURL = endpoint
 		}
-		proxyEnv = withoutEnvironmentKey(proxyEnv, "CAUTEM_GATEWAY_URL")
-		proxyEnv = withoutEnvironmentKey(proxyEnv, "CAUTEM_SANDBOX")
+		proxyEnv = withoutEnvironmentKey(proxyEnv, "QUARSHELL_GATEWAY_URL")
+		proxyEnv = withoutEnvironmentKey(proxyEnv, "QUARSHELL_SANDBOX")
 		if gatewayURL != "" {
-			proxyEnv = append(proxyEnv, "CAUTEM_GATEWAY_URL="+gatewayURL)
+			proxyEnv = append(proxyEnv, "QUARSHELL_GATEWAY_URL="+gatewayURL)
 		}
 		proxySandboxID := launchSpec.GatewaySandboxID
 		if proxySandboxID == "" {
 			proxySandboxID = state.ID
 		}
 		proxyEnv = withGatewaySandboxID(proxyEnv, proxySandboxID)
-		proxyEnv = append(proxyEnv, "CAUTEM_SANDBOX="+state.ID)
+		proxyEnv = append(proxyEnv, "QUARSHELL_SANDBOX="+state.ID)
 		if endpoint != "" {
-			proxyEnv = append(proxyEnv, "CAUTEM_GATEWAY_GRPC_ENDPOINT="+endpoint)
+			proxyEnv = append(proxyEnv, "QUARSHELL_GATEWAY_GRPC_ENDPOINT="+endpoint)
 		}
 		if driverConfig.GuestTLSCA != "" {
-			proxyEnv = append(proxyEnv, "CAUTEM_GUEST_TLS_CA="+driverConfig.GuestTLSCA)
+			proxyEnv = append(proxyEnv, "QUARSHELL_GUEST_TLS_CA="+driverConfig.GuestTLSCA)
 		}
 		if driverConfig.GuestTLSCert != "" {
-			proxyEnv = append(proxyEnv, "CAUTEM_GUEST_TLS_CERT="+driverConfig.GuestTLSCert)
+			proxyEnv = append(proxyEnv, "QUARSHELL_GUEST_TLS_CERT="+driverConfig.GuestTLSCert)
 		}
 		if driverConfig.GuestTLSKey != "" {
-			proxyEnv = append(proxyEnv, "CAUTEM_GUEST_TLS_KEY="+driverConfig.GuestTLSKey)
+			proxyEnv = append(proxyEnv, "QUARSHELL_GUEST_TLS_KEY="+driverConfig.GuestTLSKey)
 		}
 		brokerConfig = &networkBrokerConfig{
 			Binary: spec.ProxyBin, Policy: spec.PolicyPath,
@@ -460,7 +460,7 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 				_ = console.Close()
 				return err
 			}
-			identity, err := createVMControlIdentity(filepath.Join(store.root, "sandboxes", state.ID, "supervisor-control"), state.ID, state.RootfsSourceDigest, runtimeDigest, environmentValue(spec.ProxyEnv, "CAUTEM_RUNTIME_GENERATION"), environmentValue(spec.ProxyEnv, "CAUTEM_SESSION_ID"))
+			identity, err := createVMControlIdentity(filepath.Join(store.root, "sandboxes", state.ID, "supervisor-control"), state.ID, state.RootfsSourceDigest, runtimeDigest, environmentValue(spec.ProxyEnv, "QUARSHELL_RUNTIME_GENERATION"), environmentValue(spec.ProxyEnv, "QUARSHELL_SESSION_ID"))
 			if err != nil {
 				_ = console.Close()
 				return err
@@ -489,23 +489,23 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 			}
 			controlIdentity = &identity
 			proxyEnv = append(proxyEnv,
-				"CAUTEM_SUPERVISOR_CONTROL_SERVER_CA="+identity.CAPath,
-				"CAUTEM_SUPERVISOR_CONTROL_SERVER_CERT="+identity.ServerCertPath,
-				"CAUTEM_SUPERVISOR_CONTROL_SERVER_KEY="+identity.ServerKeyPath,
-				"CAUTEM_SUPERVISOR_CONTROL_EXPECTED_CLIENT_IDENTITY="+identity.ExpectedClientIdentity,
-				"CAUTEM_ISOLATION_DESCRIPTOR_PATH="+filepath.Join(sandboxDir, vmIsolationDescriptorFile),
-				"CAUTEM_ADMITTED_ISOLATION_BACKEND=cautem/vm",
+				"QUARSHELL_SUPERVISOR_CONTROL_SERVER_CA="+identity.CAPath,
+				"QUARSHELL_SUPERVISOR_CONTROL_SERVER_CERT="+identity.ServerCertPath,
+				"QUARSHELL_SUPERVISOR_CONTROL_SERVER_KEY="+identity.ServerKeyPath,
+				"QUARSHELL_SUPERVISOR_CONTROL_EXPECTED_CLIENT_IDENTITY="+identity.ExpectedClientIdentity,
+				"QUARSHELL_ISOLATION_DESCRIPTOR_PATH="+filepath.Join(sandboxDir, vmIsolationDescriptorFile),
+				"QUARSHELL_ADMITTED_ISOLATION_BACKEND=quarshell/vm",
 			)
 			brokerConfig.ProxyEnv = proxyEnv
 			launch.Env = append(launch.Env,
-				"CAUTEM_VM_SUPERVISOR_ENABLED=1",
-				"CAUTEM_VM_SUPERVISOR_CONTROL_PORT="+strconv.Itoa(int(supervisorControlPort)),
+				"QUARSHELL_VM_SUPERVISOR_ENABLED=1",
+				"QUARSHELL_VM_SUPERVISOR_CONTROL_PORT="+strconv.Itoa(int(supervisorControlPort)),
 			)
 			launch.VsockPorts = append(launch.VsockPorts, KrunVsockPort{Port: supervisorControlPort, Socket: supervisorSocket, Listen: true})
 			brokerConfig.ControlSocket = supervisorProxySocket
 		}
 		if spec.EnableSSH {
-			launch.Env = append(launch.Env, "CAUTEM_VM_SSH_RELAY_PORT="+strconv.Itoa(int(sshRelayVsockPort)))
+			launch.Env = append(launch.Env, "QUARSHELL_VM_SSH_RELAY_PORT="+strconv.Itoa(int(sshRelayVsockPort)))
 			launch.VsockPorts = append(launch.VsockPorts, KrunVsockPort{Port: sshRelayVsockPort, Socket: sshSocket, Listen: true})
 			brokerConfig.SSHSocket = sshSocket
 		}
@@ -574,6 +574,7 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 	d.workers[state.ID] = command
 	d.workerLiveness[state.ID] = parentLiveness
 	done := make(chan error, 1)
+	d.workerDone[state.ID] = done
 	go func() {
 		done <- command.Wait()
 		close(done)
@@ -586,7 +587,7 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 			if brokerProcess != nil {
 				go watchHostNetworkBroker(brokerProcess, command)
 			}
-			go d.watchWorker(state.ID, store.root, done)
+			go d.watchWorker(state.ID, store.root, command, done)
 			return
 		}
 		d.lifecycleExtensions.AfterLaunchFailed(context.Background(), sandboxDir, state.LifecycleExtensions, LaunchAbortLauncherSpawnFailed)
@@ -599,6 +600,7 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 				<-done
 			}
 			delete(d.workers, state.ID)
+			delete(d.workerDone, state.ID)
 			d.closeWorkerLiveness(state.ID)
 		}
 	}()
@@ -641,12 +643,9 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 			return fmt.Errorf("start guest SSH relay: %w", err)
 		}
 	}
-	mainProcessTTYSessionID := ""
-	if spec.TTY {
-		mainProcessTTYSessionID, err = newTerminalSessionID()
-		if err != nil {
-			return err
-		}
+	mainProcessTTYSessionID, err := newTerminalSessionID()
+	if err != nil {
+		return err
 	}
 	startResponse, err := d.exchangeControl(startupCtx, state.ID, guestSocket, controlRequest{
 		Operation: "start-workload", Argv: launchSpec.Command,
@@ -661,8 +660,8 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 	if startResponse.WorkloadUID == 0 || startResponse.WorkloadGID == 0 {
 		return fmt.Errorf("start guest workload: guest did not report a non-root workload identity")
 	}
-	if spec.TTY && startResponse.SessionID != mainProcessTTYSessionID {
-		return fmt.Errorf("start guest workload: guest did not retain the requested main-process TTY session")
+	if startResponse.SessionID != mainProcessTTYSessionID {
+		return fmt.Errorf("start guest workload: guest did not retain the requested canonical process session")
 	}
 	if spec.PolicyPath != "" {
 		if err := validateVMPolicyWorkloadIdentity(spec.PolicyPath, startResponse.WorkloadUID, startResponse.WorkloadGID); err != nil {
@@ -708,6 +707,7 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 	}
 	state.Status = "running"
 	state.MainProcessTTYSessionID = mainProcessTTYSessionID
+	state.MainProcessSessionID = mainProcessTTYSessionID
 	state.WorkloadUID = startResponse.WorkloadUID
 	state.WorkloadGID = startResponse.WorkloadGID
 	state.MainProcessExitCode = nil
@@ -1226,13 +1226,17 @@ func (d *Driver) waitForExistingGuest(ctx context.Context, id, socket string) er
 	}
 }
 
-func (d *Driver) watchWorker(id, root string, done <-chan error) {
+func (d *Driver) watchWorker(id, root string, command *exec.Cmd, done <-chan error) {
 	<-done
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.workers[id] != command {
+		return
+	}
 	d.stopNetworkBroker(id)
-	_ = killWorkerProcessGroup(d.workers[id])
+	_ = killWorkerProcessGroup(command)
 	delete(d.workers, id)
+	delete(d.workerDone, id)
 	d.closeWorkerLiveness(id)
 	store, err := openStateStore(root)
 	if err != nil {
@@ -1309,12 +1313,11 @@ func (d *Driver) stopLocked(ctx context.Context, store *stateStore, state sandbo
 	} else if response, err := workerControl(ctx, workerControlPath, "status"); err == nil {
 		workerPID = response.PID
 	}
-	shutdownCtx := ctx
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		var cancel context.CancelFunc
-		shutdownCtx, cancel = context.WithTimeout(ctx, workerStopTimeout)
-		defer cancel()
-	}
+	// Guest poweroff is best-effort: libkrun can fail to observe an orderly
+	// shutdown on some KVM hosts. Bound the graceful phase even when the caller
+	// has a much longer request deadline, then terminate the worker below.
+	shutdownCtx, cancelShutdown := context.WithTimeout(ctx, workerStopTimeout)
+	defer cancelShutdown()
 	if _, err := d.exchangeControl(shutdownCtx, state.ID, guestSocket, controlRequest{Operation: "stop-workload"}); err != nil {
 		return fmt.Errorf("stop guest workload: %w", err)
 	}
@@ -1326,6 +1329,9 @@ func (d *Driver) stopLocked(ctx context.Context, store *stateStore, state sandbo
 	for {
 		if _, err := workerControl(shutdownCtx, workerControlPath, "status"); err != nil {
 			_ = killProcessGroup(workerPID)
+			if err := d.waitForWorkerExit(state.ID, workerPID, workerControlPath); err != nil {
+				return fmt.Errorf("wait for stopped VM worker: %w", err)
+			}
 			d.stopNetworkBroker(state.ID)
 			state.Status = "stopped"
 			state.UpdatedAt = time.Now().UTC()
@@ -1337,7 +1343,59 @@ func (d *Driver) stopLocked(ctx context.Context, store *stateStore, state sandbo
 		}
 		select {
 		case <-shutdownCtx.Done():
-			return fmt.Errorf("wait for guest shutdown: %w", shutdownCtx.Err())
+			if workerPID <= 0 {
+				return fmt.Errorf("force stop VM worker after guest shutdown timeout: worker PID is unavailable")
+			}
+			if err := killProcessGroup(workerPID); err != nil {
+				return fmt.Errorf("force stop VM worker after guest shutdown timeout: %w", err)
+			}
+			if err := d.waitForWorkerExit(state.ID, workerPID, workerControlPath); err != nil {
+				return fmt.Errorf("wait for forcibly stopped VM worker: %w", err)
+			}
+			d.stopNetworkBroker(state.ID)
+			state.Status = "stopped"
+			state.UpdatedAt = time.Now().UTC()
+			if err := store.save(state); err != nil {
+				return fmt.Errorf("persist stopped VM state after forced shutdown: %w", err)
+			}
+			d.lifecycleExtensions.AfterLaunchFailed(context.Background(), filepath.Join(store.root, "sandboxes", state.ID), state.LifecycleExtensions, LaunchAbortStopped)
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
+// waitForWorkerExit waits for the exact worker launched by this driver. A
+// recovered worker has no local exec.Cmd, so its control socket is polled
+// until it disappears. The caller holds d.mu to keep a later Start from
+// replacing the worker handle while cleanup is in progress.
+func (d *Driver) waitForWorkerExit(id string, pid int, controlSocket string) error {
+	if command := d.workers[id]; command != nil && command.Process != nil && command.Process.Pid == pid {
+		if done := d.workerDone[id]; done != nil {
+			timer := time.NewTimer(workerStopTimeout)
+			defer timer.Stop()
+			select {
+			case <-done:
+				delete(d.workers, id)
+				delete(d.workerDone, id)
+				d.closeWorkerLiveness(id)
+				return nil
+			case <-timer.C:
+				return fmt.Errorf("worker process %d did not exit", pid)
+			}
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), workerStopTimeout)
+	defer cancel()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := workerControl(ctx, controlSocket, "status"); err != nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("worker control socket remained available after process %d was killed", pid)
 		case <-ticker.C:
 		}
 	}
@@ -1560,7 +1618,7 @@ func (d *Driver) CopyFrom(ctx context.Context, id core.ID, source, destination s
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(parent, ".cautem-copy-*")
+	temporary, err := os.CreateTemp(parent, ".quarshell-copy-*")
 	if err != nil {
 		return err
 	}

@@ -54,6 +54,7 @@ type sandboxState struct {
 	RuntimeSessionID        string    `json:"runtime_session_id,omitempty"`
 	RuntimeDigest           string    `json:"runtime_digest,omitempty"`
 	MainProcessTTYSessionID string    `json:"main_process_tty_session_id,omitempty"`
+	MainProcessSessionID    string    `json:"main_process_session_id,omitempty"`
 	VCPUs                   uint8     `json:"vcpus,omitempty"`
 	MemoryMiB               uint32    `json:"memory_mib,omitempty"`
 	Status                  string    `json:"status"`
@@ -596,6 +597,9 @@ func validateStoredState(state sandboxState) error {
 	}
 	if state.MainProcessTTYSessionID != "" && !validTerminalSessionID(state.MainProcessTTYSessionID) {
 		return fmt.Errorf("invalid stored VM main-process TTY session ID")
+	}
+	if state.MainProcessSessionID != "" && !validTerminalSessionID(state.MainProcessSessionID) {
+		return fmt.Errorf("invalid stored VM main-process session ID")
 	}
 	if (state.WorkloadUID == 0) != (state.WorkloadGID == 0) {
 		return fmt.Errorf("sandbox workload identity must contain both UID and GID")

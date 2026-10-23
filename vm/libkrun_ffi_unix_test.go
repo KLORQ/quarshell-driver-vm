@@ -23,7 +23,7 @@ func TestNewKrunContextConfiguresCompatDiskAndVsockPattern(t *testing.T) {
 		VCPUs:           2,
 		MemoryMiB:       2048,
 		WorkDir:         "/sandbox",
-		ExecPath:        "/usr/bin/cautem-supervisor",
+		ExecPath:        "/usr/bin/quarshell-supervisor",
 		Args:            []string{"--sandbox", "test"},
 		Env:             []string{"HOME=/root", "PATH=/usr/bin"},
 		ConsolePath:     "/vm/console.log",
@@ -129,13 +129,13 @@ func TestKrunConfigMapsHostListeningPolicyBrokerVsock(t *testing.T) {
 		return 0
 	}
 	config := validKrunConfig()
-	config.VsockPorts = []KrunVsockPort{{Port: networkBrokerVsockPort, Socket: "/tmp/cautem-vm-proxy.sock", Listen: true}}
+	config.VsockPorts = []KrunVsockPort{{Port: networkBrokerVsockPort, Socket: "/tmp/quarshell-vm-proxy.sock", Listen: true}}
 	guest, err := newKrunContext(api, config)
 	if err != nil {
 		t.Fatalf("newKrunContext() error = %v", err)
 	}
 	defer guest.Close()
-	want := "add_vsock_port:5501:/tmp/cautem-vm-proxy.sock:true"
+	want := "add_vsock_port:5501:/tmp/quarshell-vm-proxy.sock:true"
 	if !containsCall(calls, want) {
 		t.Fatalf("host-listening policy broker mapping was not configured: calls=%v", calls)
 	}

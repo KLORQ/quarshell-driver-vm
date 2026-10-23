@@ -2,13 +2,13 @@ module github.com/KLORQ/quarshell-driver-vm
 
 go 1.27.0
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
-	github.com/KLORQ/quarshell-core v0.4.2
-	github.com/KLORQ/quarshell-driver v0.1.1
-	github.com/KLORQ/quarshell-proto v0.2.2
-	github.com/KLORQ/quarshell-proxy v0.1.1
+	github.com/KLORQ/quarshell-core v0.5.0
+	github.com/KLORQ/quarshell-driver v0.2.0
+	github.com/KLORQ/quarshell-proto v0.2.3
+	github.com/KLORQ/quarshell-proxy v0.1.2
 	github.com/containerd/errdefs v1.0.0
 	github.com/creack/pty v1.1.24
 	github.com/ebitengine/purego v0.10.1
@@ -24,7 +24,6 @@ require (
 )
 
 require (
-	github.com/KLORQ/quarshell-slogx v0.1.5 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect

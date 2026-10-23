@@ -25,8 +25,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KLORQ/quarshell-core/engine"
-	"github.com/KLORQ/quarshell-core/policy"
+	"github.com/KLORQ/quarshell-policy/corepolicy"
+	"github.com/KLORQ/quarshell-policy/engine"
 	"github.com/KLORQ/quarshell-proxy/proxy"
 )
 
@@ -35,17 +35,17 @@ import (
 const supervisorControlTestProtocol uint32 = 2
 
 func TestMain(m *testing.M) {
-	if os.Getenv("CAUTEM_VM_TEST_BROKER_LOSS_HELPER") == "1" {
+	if os.Getenv("QUARSHELL_VM_TEST_BROKER_LOSS_HELPER") == "1" {
 		os.Exit(runNetworkBrokerLossTestHelper())
 	}
-	if os.Getenv("CAUTEM_VM_TEST_POLICY_PROXY_HELPER") == "1" {
+	if os.Getenv("QUARSHELL_VM_TEST_POLICY_PROXY_HELPER") == "1" {
 		os.Exit(runPolicyProxyTestHelper(os.Args[1:]))
 	}
 	os.Exit(m.Run())
 }
 
 func runNetworkBrokerLossTestHelper() int {
-	pidFile := os.Getenv("CAUTEM_VM_TEST_BROKER_PID_FILE")
+	pidFile := os.Getenv("QUARSHELL_VM_TEST_BROKER_PID_FILE")
 	if pidFile == "" {
 		return 2
 	}
@@ -89,8 +89,8 @@ func TestWatchNetworkBrokerStopsWorkerProcessGroupOnBrokerLoss(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "broker.pid")
 	helper := exec.Command(os.Args[0], "-test.run=^$")
 	helper.Env = append(os.Environ(),
-		"CAUTEM_VM_TEST_BROKER_LOSS_HELPER=1",
-		"CAUTEM_VM_TEST_BROKER_PID_FILE="+pidFile,
+		"QUARSHELL_VM_TEST_BROKER_LOSS_HELPER=1",
+		"QUARSHELL_VM_TEST_BROKER_PID_FILE="+pidFile,
 	)
 	helper.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	var stderr bytes.Buffer
@@ -206,7 +206,7 @@ func runPolicyProxyTestHelper(args []string) int {
 		return 1
 	}
 	server := proxy.NewServer(&allowlist, os.Stderr)
-	if pidFile := os.Getenv("CAUTEM_VM_TEST_BROKER_PID_FILE"); pidFile != "" {
+	if pidFile := os.Getenv("QUARSHELL_VM_TEST_BROKER_PID_FILE"); pidFile != "" {
 		if !filepath.IsAbs(pidFile) || filepath.Clean(pidFile) != pidFile {
 			_ = listener.Close()
 			fmt.Fprintln(os.Stderr, "VM policy proxy test broker PID path must be a clean absolute path")
@@ -219,7 +219,7 @@ func runPolicyProxyTestHelper(args []string) int {
 		}
 	}
 	var controlServer net.Listener
-	controlPath := os.Getenv("CAUTEM_SUPERVISOR_CONTROL_SOCKET")
+	controlPath := os.Getenv("QUARSHELL_SUPERVISOR_CONTROL_SOCKET")
 	if controlPath != "" {
 		controlTLS, err := testSupervisorControlTLSConfig()
 		if err != nil {
@@ -240,11 +240,11 @@ func runPolicyProxyTestHelper(args []string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		go serveSupervisorControlTestHelper(controlServer, os.Getenv("CAUTEM_VM_TEST_CONTROL_EVENTS"), os.Getenv("CAUTEM_SUPERVISOR_CONTROL_EXPECTED_CLIENT_IDENTITY"), controlTLS)
+		go serveSupervisorControlTestHelper(controlServer, os.Getenv("QUARSHELL_VM_TEST_CONTROL_EVENTS"), os.Getenv("QUARSHELL_SUPERVISOR_CONTROL_EXPECTED_CLIENT_IDENTITY"), controlTLS)
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer cancel()
-	if ackPath := os.Getenv("CAUTEM_VM_TEST_POLICY_ACK_FILE"); ackPath != "" {
+	if ackPath := os.Getenv("QUARSHELL_VM_TEST_POLICY_ACK_FILE"); ackPath != "" {
 		if !filepath.IsAbs(ackPath) || filepath.Clean(ackPath) != ackPath {
 			_ = listener.Close()
 			fmt.Fprintln(os.Stderr, "VM policy proxy test acknowledgement path must be a clean absolute path")
@@ -294,7 +294,7 @@ func TestNetworkBrokerTestHelperEnforcesDefaultDeny(t *testing.T) {
 	defer cancel()
 	command := exec.CommandContext(ctx, binary, "-test.run=^$")
 	command.Args = append(command.Args, "proxy", "--listen", "unix://"+socket, "--policy", policyPath)
-	command.Env = append(os.Environ(), "CAUTEM_VM_TEST_POLICY_PROXY_HELPER=1")
+	command.Env = append(os.Environ(), "QUARSHELL_VM_TEST_POLICY_PROXY_HELPER=1")
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -406,7 +406,7 @@ func TestSupervisorControlTestHelperAcceptsCurrentProtocol(t *testing.T) {
 }
 
 func testSupervisorControlTLSConfig() (*tls.Config, error) {
-	caPEM, err := os.ReadFile(os.Getenv("CAUTEM_SUPERVISOR_CONTROL_SERVER_CA"))
+	caPEM, err := os.ReadFile(os.Getenv("QUARSHELL_SUPERVISOR_CONTROL_SERVER_CA"))
 	if err != nil {
 		return nil, fmt.Errorf("read test VM control CA: %w", err)
 	}
@@ -414,11 +414,11 @@ func testSupervisorControlTLSConfig() (*tls.Config, error) {
 	if !clientCAs.AppendCertsFromPEM(caPEM) {
 		return nil, fmt.Errorf("test VM control CA contains no certificates")
 	}
-	cert, err := tls.LoadX509KeyPair(os.Getenv("CAUTEM_SUPERVISOR_CONTROL_SERVER_CERT"), os.Getenv("CAUTEM_SUPERVISOR_CONTROL_SERVER_KEY"))
+	cert, err := tls.LoadX509KeyPair(os.Getenv("QUARSHELL_SUPERVISOR_CONTROL_SERVER_CERT"), os.Getenv("QUARSHELL_SUPERVISOR_CONTROL_SERVER_KEY"))
 	if err != nil {
 		return nil, fmt.Errorf("load test VM control server identity: %w", err)
 	}
-	expected := os.Getenv("CAUTEM_SUPERVISOR_CONTROL_EXPECTED_CLIENT_IDENTITY")
+	expected := os.Getenv("QUARSHELL_SUPERVISOR_CONTROL_EXPECTED_CLIENT_IDENTITY")
 	if expected == "" {
 		return nil, fmt.Errorf("test VM control expected identity is missing")
 	}
@@ -487,7 +487,7 @@ func serveSupervisorControlTestHelper(listener net.Listener, eventPath, expected
 					_ = file.Close()
 				}
 			}
-			if detailsPath := os.Getenv("CAUTEM_VM_TEST_CONTROL_DETAILS"); detailsPath != "" {
+			if detailsPath := os.Getenv("QUARSHELL_VM_TEST_CONTROL_DETAILS"); detailsPath != "" {
 				if data, marshalErr := json.Marshal(request); marshalErr == nil {
 					if file, openErr := os.OpenFile(detailsPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); openErr == nil {
 						_, _ = file.Write(append(data, '\n'))
@@ -523,7 +523,7 @@ func (connection *supervisorControlCountingConn) Write(payload []byte) (int, err
 }
 
 func writeSupervisorControlDiagnostic(message string) {
-	path := os.Getenv("CAUTEM_VM_TEST_CONTROL_DIAGNOSTICS")
+	path := os.Getenv("QUARSHELL_VM_TEST_CONTROL_DIAGNOSTICS")
 	if path == "" {
 		return
 	}

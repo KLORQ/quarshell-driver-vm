@@ -12,8 +12,6 @@ github.com/KLORQ/quarshell-proto v0.2.2 h1:F/CPWY0tTsb6SVxQxkxnLZgo4TQ3X17OdzFlr
 github.com/KLORQ/quarshell-proto v0.2.2/go.mod h1:RO/HzvSTOz16uVPBI+HUrlhdKXRbUZYjumBa/U1L2jk=
 github.com/KLORQ/quarshell-proxy v0.1.1 h1:Yf5eFzlSMFLiRyJDpyjCEiQcLcOYWFnFyxDJURmc0OE=
 github.com/KLORQ/quarshell-proxy v0.1.1/go.mod h1:ZgwpmVk5grEJFbZfF+kdcb7hre+uHMDa4ZnUAnHy4DI=
-github.com/KLORQ/quarshell-slogx v0.1.5 h1:pxnNUQ8wKQESZpVZLCIuZRTQ77LyVZ4Ow3nKQfcHaUA=
-github.com/KLORQ/quarshell-slogx v0.1.5/go.mod h1:dVMLc7Y4dIoPpECXrYFL5ed4DfifgglNEx6pCpVnuro=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=

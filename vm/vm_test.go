@@ -137,7 +137,7 @@ func testGuestELF() []byte {
 
 func TestCreateUsesDefaultImageAndRejectsInvalidSpec(t *testing.T) {
 	d := NewWithHostConfig(HostConfig{StateDir: filepath.Join(t.TempDir(), "state")})
-	if _, err := d.createSandbox(context.Background(), vmCreateSpec{Name: "default-image"}); err == nil || !strings.Contains(err.Error(), "CAUTEM_VM_GUEST_AGENT") {
+	if _, err := d.createSandbox(context.Background(), vmCreateSpec{Name: "default-image"}); err == nil || !strings.Contains(err.Error(), "QUARSHELL_VM_GUEST_AGENT") {
 		t.Fatalf("Create() did not resolve default image before host runtime validation: %v", err)
 	}
 	if _, err := d.createSandbox(context.Background(), vmCreateSpec{Name: "../escape"}); err == nil {

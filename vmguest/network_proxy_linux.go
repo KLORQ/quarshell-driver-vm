@@ -14,10 +14,10 @@ import (
 const networkProxyConnections = 128
 
 func networkProxyConfigurationFromEnvironment() (proxyPort uint32, brokerPort uint32, err error) {
-	proxyValue := strings.TrimSpace(os.Getenv("CAUTEM_VM_NETWORK_PROXY_PORT"))
-	brokerValue := strings.TrimSpace(os.Getenv("CAUTEM_VM_NETWORK_BROKER_PORT"))
-	_ = os.Unsetenv("CAUTEM_VM_NETWORK_PROXY_PORT")
-	_ = os.Unsetenv("CAUTEM_VM_NETWORK_BROKER_PORT")
+	proxyValue := strings.TrimSpace(os.Getenv("QUARSHELL_VM_NETWORK_PROXY_PORT"))
+	brokerValue := strings.TrimSpace(os.Getenv("QUARSHELL_VM_NETWORK_BROKER_PORT"))
+	_ = os.Unsetenv("QUARSHELL_VM_NETWORK_PROXY_PORT")
+	_ = os.Unsetenv("QUARSHELL_VM_NETWORK_BROKER_PORT")
 	if proxyValue == "" && brokerValue == "" {
 		return 0, 0, nil
 	}
@@ -65,7 +65,7 @@ func bridgeNetworkProxyConnection(client net.Conn, broker net.Listener) {
 	defer client.Close()
 	upstream, err := broker.Accept()
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "cautem-init: accept host network broker vsock connection: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "quarshell-init: accept host network broker vsock connection: %v\n", err)
 		return
 	}
 	defer upstream.Close()
@@ -79,13 +79,13 @@ func bridgeNetworkProxyConnection(client net.Conn, broker net.Listener) {
 	_, readErr := io.Copy(client, upstream)
 	_ = closeWrite(client)
 	if readErr != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "cautem-init: read host network broker response: %v\n", readErr)
+		_, _ = fmt.Fprintf(os.Stderr, "quarshell-init: read host network broker response: %v\n", readErr)
 		_ = client.Close()
 		_ = upstream.Close()
 	}
 	writeErr := <-done
 	if writeErr != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "cautem-init: forward guest proxy request to host broker: %v\n", writeErr)
+		_, _ = fmt.Fprintf(os.Stderr, "quarshell-init: forward guest proxy request to host broker: %v\n", writeErr)
 		_ = client.Close()
 		_ = upstream.Close()
 	}

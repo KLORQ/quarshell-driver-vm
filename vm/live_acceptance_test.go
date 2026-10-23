@@ -36,21 +36,21 @@ import (
 // TestLiveMicroVMLifecycle exercises the full host-to-guest path. It is opt-in
 // because it needs a native libkrun runtime and an ext4/overlayfs-capable guest.
 func TestLiveMicroVMLifecycle(t *testing.T) {
-	if os.Getenv("CAUTEM_VM_ACCEPTANCE") != "1" {
-		t.Skip("set CAUTEM_VM_ACCEPTANCE=1 and configure the MicroVM runtime to run live acceptance")
+	if os.Getenv("QUARSHELL_VM_ACCEPTANCE") != "1" {
+		t.Skip("set QUARSHELL_VM_ACCEPTANCE=1 and configure the MicroVM runtime to run live acceptance")
 	}
-	rootfsTar := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_ROOTFS_TAR"))
+	rootfsTar := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_ROOTFS_TAR"))
 	if rootfsTar == "" {
-		t.Fatal("CAUTEM_VM_TEST_ROOTFS_TAR is required for live MicroVM acceptance")
+		t.Fatal("QUARSHELL_VM_TEST_ROOTFS_TAR is required for live MicroVM acceptance")
 	}
-	guestAgent := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_GUEST_AGENT"))
+	guestAgent := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_GUEST_AGENT"))
 	if guestAgent == "" {
-		t.Fatal("CAUTEM_VM_TEST_GUEST_AGENT is required for live MicroVM acceptance")
+		t.Fatal("QUARSHELL_VM_TEST_GUEST_AGENT is required for live MicroVM acceptance")
 	}
-	initBin := requireLiveAsset(t, "CAUTEM_VM_TEST_INIT_BIN")
-	supervisorBin := requireLiveAsset(t, "CAUTEM_VM_TEST_SUPERVISOR_BIN")
-	sshBin := requireLiveAsset(t, "CAUTEM_VM_TEST_SSH_BIN")
-	securityProbe := requireLiveAsset(t, "CAUTEM_VM_TEST_SECURITY_PROBE")
+	initBin := requireLiveAsset(t, "QUARSHELL_VM_TEST_INIT_BIN")
+	supervisorBin := requireLiveAsset(t, "QUARSHELL_VM_TEST_SUPERVISOR_BIN")
+	sshBin := requireLiveAsset(t, "QUARSHELL_VM_TEST_SSH_BIN")
+	securityProbe := requireLiveAsset(t, "QUARSHELL_VM_TEST_SECURITY_PROBE")
 	runtimeDir := strings.TrimSpace(os.Getenv("OPENSHELL_VM_RUNTIME_DIR"))
 	if runtimeDir == "" {
 		t.Fatal("OPENSHELL_VM_RUNTIME_DIR is required for live MicroVM acceptance")
@@ -59,7 +59,7 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 		t.Skipf("live MicroVM acceptance is unsupported on %s", runtime.GOOS)
 	}
 
-	formatter := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_E2FS_FORMATTER"))
+	formatter := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_E2FS_FORMATTER"))
 	if formatter == "" {
 		var err error
 		formatter, err = resolveExt4Formatter()
@@ -74,9 +74,9 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 	host := HostConfig{
 		RuntimeDir: runtimeDir, StateDir: stateDir, RootfsTarDir: filepath.Dir(filepath.Dir(rootfsTar)),
 		BootstrapImage: strings.TrimPrefix(bootstrapRegistry.server.URL, "http://") + "/agent:latest",
-		KVMDevice:      strings.TrimSpace(os.Getenv("CAUTEM_KVM_DEVICE")),
+		KVMDevice:      strings.TrimSpace(os.Getenv("QUARSHELL_KVM_DEVICE")),
 		FormatterPath:  formatter, OverlaySizeBytes: 64 << 20,
-		GuestAgentPath: guestAgent, WorkerPath: strings.TrimSpace(os.Getenv("CAUTEM_VM_WORKER")),
+		GuestAgentPath: guestAgent, WorkerPath: strings.TrimSpace(os.Getenv("QUARSHELL_VM_WORKER")),
 		VCPUs: 2, MemoryMiB: 1024,
 		// The live KVM lane exercises guest-initiated vsock-to-Unix control
 		// connections. Keep libkrun trace output enabled there so failures at
@@ -92,7 +92,7 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 	forwardEchoHelper := buildLiveForwardEchoHelper(t, ctx)
 	proxyHTTPProbe := buildLiveProxyHTTPProbe(t, ctx)
@@ -164,7 +164,7 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	policyPath := filepath.Join(policyDir, "policy.yaml")
-	if err := os.WriteFile(policyPath, []byte("# cautem-policy-revision: 1\nversion: 1\nlandlock:\n  compatibility: best_effort\nprocess:\n  run_as_user: '1000'\n  run_as_group: '1000'\nnetwork_policies: {}\n"), 0o600); err != nil {
+	if err := os.WriteFile(policyPath, []byte("# quarshell-policy-revision: 1\nversion: 1\nlandlock:\n  compatibility: best_effort\nprocess:\n  run_as_user: '1000'\n  run_as_group: '1000'\nnetwork_policies: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	proxyCABundle := newTestProxyCABundle(t)
@@ -193,22 +193,22 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 		ProxyEnv: []string{
 			"HTTP_PROXY=" + upstreamProxy.URL,
 			"HTTPS_PROXY=" + upstreamProxy.URL,
-			"CAUTEM_PROXY_CA_BUNDLE=" + proxyCAPath,
-			"CAUTEM_PROXY_AUTH_FILE=" + proxyAuthPath,
-			"CAUTEM_EGRESS_CA_BUNDLE=" + proxyCAPath,
-			"CAUTEM_VM_TEST_POLICY_PROXY_HELPER=1",
-			"CAUTEM_VM_TEST_BROKER_PID_FILE=" + brokerPIDPath,
-			"CAUTEM_VM_TEST_POLICY_ACK_FILE=" + policyAckPath,
-			"CAUTEM_VM_TEST_CONTROL_EVENTS=" + controlEventsPath,
-			"CAUTEM_VM_TEST_CONTROL_DETAILS=" + controlDetailsPath,
-			"CAUTEM_VM_TEST_CONTROL_DIAGNOSTICS=" + controlDiagnosticsPath,
+			"QUARSHELL_PROXY_CA_BUNDLE=" + proxyCAPath,
+			"QUARSHELL_PROXY_AUTH_FILE=" + proxyAuthPath,
+			"QUARSHELL_EGRESS_CA_BUNDLE=" + proxyCAPath,
+			"QUARSHELL_VM_TEST_POLICY_PROXY_HELPER=1",
+			"QUARSHELL_VM_TEST_BROKER_PID_FILE=" + brokerPIDPath,
+			"QUARSHELL_VM_TEST_POLICY_ACK_FILE=" + policyAckPath,
+			"QUARSHELL_VM_TEST_CONTROL_EVENTS=" + controlEventsPath,
+			"QUARSHELL_VM_TEST_CONTROL_DETAILS=" + controlDetailsPath,
+			"QUARSHELL_VM_TEST_CONTROL_DIAGNOSTICS=" + controlDiagnosticsPath,
 		},
 		InitBin: initBin, SupervisorBin: supervisorBin, EnableSSH: true, SSHBin: sshBin,
 	}
-	if os.Getenv("CAUTEM_VM_TEST_GATEWAY_CREDENTIALS_ONLY") == "1" {
-		proxyCLI := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_PROXY_CLI"))
+	if os.Getenv("QUARSHELL_VM_TEST_GATEWAY_CREDENTIALS_ONLY") == "1" {
+		proxyCLI := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_PROXY_CLI"))
 		if proxyCLI == "" {
-			t.Fatal("CAUTEM_VM_TEST_PROXY_CLI is required for paired Gateway credential acceptance")
+			t.Fatal("QUARSHELL_VM_TEST_PROXY_CLI is required for paired Gateway credential acceptance")
 		}
 		assertLiveGatewayCredentialLaunch(t, ctx, host, rootfsTar, initBin, supervisorBin, sshBin, proxyCLI, policyPath)
 		return
@@ -272,6 +272,7 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 		t.Fatalf("ensure live guest SSH daemon: %v", err)
 	}
 	assertLiveSSHRelay(t, ctx, first, handle.ID, forwardEchoHelper)
+	assertLiveOpenShellMainSubsystem(t, ctx, first, handle.ID)
 	if err := first.WaitProxyReady(ctx, handle.Name); err != nil {
 		t.Fatalf("wait for live VM policy proxy readiness: %v", err)
 	}
@@ -512,6 +513,55 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 	}
 	t.Log("live short main process retained output and exit until a late TTY attachment closed")
 
+	pipeHandle, err := terminal.createSandbox(ctx, vmCreateSpec{
+		Name: "live-microvm-await-main-pipe-attachment", Image: "alpine:3.22",
+		DriverConfigJSON:           string(driverConfig),
+		Command:                    []string{"/bin/sh", "-c", "printf 'late-pipe-stdout\\n'; printf 'late-pipe-stderr\\n' >&2; exit 9"},
+		AwaitMainProcessAttachment: true,
+		ProxyBin:                   brokerSpec.ProxyBin, PolicyPath: brokerSpec.PolicyPath, ProxyEnv: brokerSpec.ProxyEnv,
+	})
+	if err != nil {
+		t.Fatalf("create await-pipe-attachment MicroVM: %v", err)
+	}
+	registerLiveSandboxCleanup(t, host, pipeHandle.ID)
+	if err := terminal.Start(ctx, pipeHandle.ID); err != nil {
+		t.Fatalf("start await-pipe-attachment MicroVM: %v", err)
+	}
+	pipeState, err := openStateStore(host.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err = pipeState.load(string(pipeHandle.ID))
+	if err != nil || state.Status != "running" {
+		t.Fatalf("VM state before non-TTY main-process attachment=%+v err=%v", state, err)
+	}
+	mainStream, err := terminal.OpenMainProcessStream(ctx, pipeHandle.ID)
+	if err != nil {
+		t.Fatalf("open late main-process pipe attachment: %v", err)
+	}
+	var pipeStdout, pipeStderr []byte
+	pipeExit := -1
+	for pipeExit < 0 {
+		output, readErr := mainStream.ReadOutput()
+		if readErr != nil {
+			_ = mainStream.Close()
+			t.Fatalf("read late main-process pipe output: %v", readErr)
+		}
+		pipeStdout = append(pipeStdout, output.Stdout...)
+		pipeStderr = append(pipeStderr, output.Stderr...)
+		if output.Exited {
+			pipeExit = output.ExitCode
+		}
+	}
+	if err := mainStream.Close(); err != nil {
+		t.Fatalf("close late main-process pipe attachment: %v", err)
+	}
+	if !strings.Contains(string(pipeStdout), "late-pipe-stdout") || !strings.Contains(string(pipeStderr), "late-pipe-stderr") || pipeExit != 9 {
+		t.Fatalf("late pipe attach stdout=%q stderr=%q exit=%d", pipeStdout, pipeStderr, pipeExit)
+	}
+	waitForLiveVMStoppedState(t, ctx, host.StateDir, string(pipeHandle.ID))
+	t.Log("live non-TTY main process replayed separate stdout/stderr and exit status to a late attachment")
+
 	restartHandle, err := terminal.createSandbox(ctx, vmCreateSpec{
 		Name: "live-microvm-terminal-explicit-restart", Image: "alpine:3.22",
 		DriverConfigJSON: string(driverConfig), Command: []string{"/bin/sh", "-c", "while :; do sleep 1; done"},
@@ -542,9 +592,9 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 	}
 	t.Log("live explicit Start closed the previous terminal VM worker, booted a fresh worker, and cleared its exit result")
 
-	proxyCLI := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_PROXY_CLI"))
+	proxyCLI := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_PROXY_CLI"))
 	if proxyCLI == "" {
-		t.Fatal("CAUTEM_VM_TEST_PROXY_CLI is required for paired Gateway credential acceptance")
+		t.Fatal("QUARSHELL_VM_TEST_PROXY_CLI is required for paired Gateway credential acceptance")
 	}
 	assertLiveGatewayCredentialLaunch(t, ctx, host, rootfsTar, initBin, supervisorBin, sshBin, proxyCLI, policyPath)
 }
@@ -621,7 +671,7 @@ func assertLiveSupervisorCredentialConsumed(t *testing.T, ctx context.Context, d
 	if err == nil {
 		t.Fatal("guest supervisor client private-key file remains available after workload startup")
 	}
-	result, err := d.Exec(ctx, id, driver.ExecRequest{Argv: []string{"/bin/sh", "-c", "test \"$(id -u)\" != 0; test ! -r /run/cautem/supervisor-control-private/ca.pem; test ! -r /run/cautem/supervisor-control-private/client.crt; test ! -e /run/cautem/supervisor-control-private/client.key"}, NoLoginShell: true})
+	result, err := d.Exec(ctx, id, driver.ExecRequest{Argv: []string{"/bin/sh", "-c", "test \"$(id -u)\" != 0; test ! -r /run/quarshell/supervisor-control-private/ca.pem; test ! -r /run/quarshell/supervisor-control-private/client.crt; test ! -e /run/quarshell/supervisor-control-private/client.key"}, NoLoginShell: true})
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("workload can access supervisor credential directory: result=%+v err=%v", result, err)
 	}
@@ -806,7 +856,7 @@ func registerLiveSandboxCleanup(t *testing.T, host HostConfig, id core.ID) {
 
 func captureLiveConsoleTail(t *testing.T, host HostConfig, id core.ID) {
 	t.Helper()
-	artifactDir := strings.TrimSpace(os.Getenv("CAUTEM_VM_TEST_ARTIFACT_DIR"))
+	artifactDir := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_ARTIFACT_DIR"))
 	if artifactDir == "" {
 		return
 	}
@@ -1054,6 +1104,59 @@ func assertLiveSSHRelay(t *testing.T, ctx context.Context, d *Driver, id core.ID
 	assertLiveSSHDirectTCPForward(t, ctx, client, d, id, forwardEchoHelper)
 }
 
+func assertLiveOpenShellMainSubsystem(t *testing.T, ctx context.Context, d *Driver, id core.ID) {
+	t.Helper()
+	store, err := openStateStore(d.host.StateDir)
+	if err != nil {
+		t.Fatalf("open VM state for main subsystem acceptance: %v", err)
+	}
+	workerSocket, _, _ := workerSocketPaths(store.root, string(id))
+	connection, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "unix", sshRelaySocketPath(workerSocket, string(id)))
+	if err != nil {
+		t.Fatalf("connect to VM SSH relay for openshell-main: %v", err)
+	}
+	defer connection.Close()
+	_ = connection.SetDeadline(time.Now().Add(20 * time.Second))
+	clientConnection, channels, requests, err := ssh.NewClientConn(connection, "vm-main-acceptance", &ssh.ClientConfig{
+		User: "acceptance", HostKeyCallback: ssh.InsecureIgnoreHostKey(), Timeout: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("complete SSH handshake for openshell-main: %v", err)
+	}
+	client := ssh.NewClient(clientConnection, channels, requests)
+	defer client.Close()
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.RequestPty("xterm-256color", 24, 80, ssh.TerminalModes{}); err != nil {
+		t.Fatalf("request PTY for openshell-main: %v", err)
+	}
+	if err := session.RequestSubsystem("openshell-main"); err != nil {
+		t.Fatalf("request openshell-main: %v", err)
+	}
+	if _, err := io.WriteString(stdin, "from-ssh-subsystem\n"); err != nil {
+		t.Fatal(err)
+	}
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		if scanner.Text() == "main-tty:from-ssh-subsystem:24 80" {
+			t.Log("openshell-main relayed canonical PTY output, stdin and terminal dimensions")
+			return
+		}
+	}
+	t.Fatalf("openshell-main did not return canonical input echo: scanner err=%v", scanner.Err())
+}
+
 func assertLiveSSHDirectTCPForward(t *testing.T, ctx context.Context, client *ssh.Client, d *Driver, id core.ID, helper string) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1062,11 +1165,11 @@ func assertLiveSSHDirectTCPForward(t *testing.T, ctx context.Context, client *ss
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-	guestPath := "/sandbox/.cautem-forward-echo"
+	guestPath := "/sandbox/.quarshell-forward-echo"
 	if err := d.CopyTo(ctx, id, helper, guestPath); err != nil {
 		t.Fatalf("copy direct-tcpip echo fixture into guest: %v", err)
 	}
-	start := fmt.Sprintf("%s %d >/sandbox/.cautem-forward-echo.log 2>&1 &", guestPath, port)
+	start := fmt.Sprintf("%s %d >/sandbox/.quarshell-forward-echo.log 2>&1 &", guestPath, port)
 	if result, err := d.Exec(ctx, id, driver.ExecRequest{Argv: []string{"/bin/sh", "-c", start}, NoLoginShell: true}); err != nil || result.ExitCode != 0 {
 		t.Fatalf("start guest direct-tcpip echo fixture: result=%+v err=%v", result, err)
 	}
@@ -1193,7 +1296,7 @@ func assertLivePolicyRevisionUpdate(t *testing.T, ctx context.Context, sandbox *
 	// httptest's stable local certificate includes example.com; the test HTTPS
 	// proxy tunnels that host to its local TLS server rather than the internet.
 	probeHost := "example.com"
-	policyDocument := []byte(fmt.Sprintf("# cautem-policy-revision: 2\nversion: 1\nlandlock:\n  compatibility: best_effort\nprocess:\n  run_as_user: '1000'\n  run_as_group: '1000'\nnetwork_policies:\n  live-acceptance:\n    endpoints:\n      - host: %s\n        port: 443\n        tls: skip\n", probeHost))
+	policyDocument := []byte(fmt.Sprintf("# quarshell-policy-revision: 2\nversion: 1\nlandlock:\n  compatibility: best_effort\nprocess:\n  run_as_user: '1000'\n  run_as_group: '1000'\nnetwork_policies:\n  live-acceptance:\n    endpoints:\n      - host: %s\n        port: 443\n        tls: skip\n", probeHost))
 	updatedPath := policyPath + ".next"
 	if err := os.WriteFile(updatedPath, policyDocument, 0o600); err != nil {
 		t.Fatalf("write next live policy revision: %v", err)
@@ -1222,7 +1325,7 @@ func assertLivePolicyRevisionUpdate(t *testing.T, ctx context.Context, sandbox *
 		t.Fatal("allowed guest request never reached the working local upstream proxy")
 	}
 	t.Logf("revision 2 allowed a live guest request through the local upstream proxy: %s", strings.TrimSpace(allowedOutput))
-	policyDocument = []byte("# cautem-policy-revision: 3\nversion: 1\nlandlock:\n  compatibility: best_effort\nprocess:\n  run_as_user: '1000'\n  run_as_group: '1000'\nnetwork_policies: {}\n")
+	policyDocument = []byte("# quarshell-policy-revision: 3\nversion: 1\nlandlock:\n  compatibility: best_effort\nprocess:\n  run_as_user: '1000'\n  run_as_group: '1000'\nnetwork_policies: {}\n")
 	if err := os.WriteFile(updatedPath, policyDocument, 0o600); err != nil {
 		t.Fatalf("write policy revocation revision: %v", err)
 	}

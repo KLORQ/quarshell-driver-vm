@@ -87,7 +87,7 @@ func startNetworkBroker(config *networkBrokerConfig) (*networkBrokerProcess, err
 		return nil, fmt.Errorf("create host broker parent-liveness pipe: %w", err)
 	}
 	command.Stdin = livenessRead
-	command.Env = append(proxyEnv, "CAUTEM_HOST_PARENT_LIVENESS=1")
+	command.Env = append(proxyEnv, "QUARSHELL_HOST_PARENT_LIVENESS=1")
 	command.Stdout = os.Stderr
 	command.Stderr = os.Stderr
 	if err := command.Start(); err != nil {
@@ -120,10 +120,10 @@ func startNetworkBroker(config *networkBrokerConfig) (*networkBrokerProcess, err
 func networkBrokerProcessEnvironment(config networkBrokerConfig) ([]string, error) {
 	entries := append([]string(nil), config.ProxyEnv...)
 	if config.SSHSocket != "" {
-		entries = append(entries, "CAUTEM_SSH_SOCKET="+config.SSHSocket)
+		entries = append(entries, "QUARSHELL_SSH_SOCKET="+config.SSHSocket)
 	}
 	if config.ControlSocket != "" {
-		entries = append(entries, "CAUTEM_SUPERVISOR_CONTROL_SOCKET="+config.ControlSocket)
+		entries = append(entries, "QUARSHELL_SUPERVISOR_CONTROL_SOCKET="+config.ControlSocket)
 	}
 	return networkBrokerEnvironmentChecked(entries)
 }
@@ -197,7 +197,7 @@ func validateNetworkBrokerConfig(config networkBrokerConfig) (networkBrokerConfi
 	}
 	for _, entry := range config.ProxyEnv {
 		key, _, _ := strings.Cut(entry, "=")
-		if key == "CAUTEM_SSH_SOCKET" || key == "CAUTEM_SUPERVISOR_CONTROL_SOCKET" || key == "CAUTEM_SANDBOX_TOKEN_FILE" {
+		if key == "QUARSHELL_SSH_SOCKET" || key == "QUARSHELL_SUPERVISOR_CONTROL_SOCKET" || key == "QUARSHELL_SANDBOX_TOKEN_FILE" {
 			return config, fmt.Errorf("VM policy proxy environment cannot override driver-owned setting %s", key)
 		}
 	}
@@ -308,15 +308,15 @@ func watchHostNetworkBroker(process *networkBrokerProcess, worker *exec.Cmd) {
 }
 
 func prepareBrokerCredential(config networkBrokerConfig, environment []string) ([]string, string, error) {
-	const tokenKey = "CAUTEM_SANDBOX_TOKEN"
-	const sandboxTokenKey = "CAUTEM_SANDBOX_PROTOCOL_TOKEN"
-	const gatewayExpiryKey = "CAUTEM_GATEWAY_TOKEN_EXPIRES_AT"
-	const sandboxExpiryKey = "CAUTEM_SANDBOX_TOKEN_EXPIRES_AT"
-	const authEpochKey = "CAUTEM_AUTH_EPOCH"
-	const sessionRotationKey = "CAUTEM_SESSION_ROTATION"
-	const runtimeGenerationKey = "CAUTEM_RUNTIME_GENERATION"
-	const descriptorKey = "CAUTEM_ISOLATION_DESCRIPTOR_PATH"
-	const sandboxKey = "CAUTEM_SANDBOX"
+	const tokenKey = "QUARSHELL_SANDBOX_TOKEN"
+	const sandboxTokenKey = "QUARSHELL_SANDBOX_PROTOCOL_TOKEN"
+	const gatewayExpiryKey = "QUARSHELL_GATEWAY_TOKEN_EXPIRES_AT"
+	const sandboxExpiryKey = "QUARSHELL_SANDBOX_TOKEN_EXPIRES_AT"
+	const authEpochKey = "QUARSHELL_AUTH_EPOCH"
+	const sessionRotationKey = "QUARSHELL_SESSION_ROTATION"
+	const runtimeGenerationKey = "QUARSHELL_RUNTIME_GENERATION"
+	const descriptorKey = "QUARSHELL_ISOLATION_DESCRIPTOR_PATH"
+	const sandboxKey = "QUARSHELL_SANDBOX"
 	token := ""
 	sandboxToken := ""
 	var gatewayExpiry, sandboxExpiry, authEpoch, sessionRotation uint64
@@ -337,16 +337,17 @@ func prepareBrokerCredential(config networkBrokerConfig, environment []string) (
 			if parseErr != nil {
 				return nil, "", fmt.Errorf("invalid host supervisor credential metadata %s", key)
 			}
-			if key == gatewayExpiryKey {
+			switch key {
+			case gatewayExpiryKey:
 				gatewayExpiry = parsed
 				gatewayExpirySeen = true
-			} else if key == sandboxExpiryKey {
+			case sandboxExpiryKey:
 				sandboxExpiry = parsed
 				sandboxExpirySeen = true
-			} else if key == authEpochKey {
+			case authEpochKey:
 				authEpoch = parsed
 				authEpochSeen = true
-			} else {
+			default:
 				sessionRotation = parsed
 				sessionRotationSeen = true
 			}
@@ -363,7 +364,7 @@ func prepareBrokerCredential(config networkBrokerConfig, environment []string) (
 		}
 	}
 	path := filepath.Join(config.LogDir, "supervisor-auth.token")
-	credentialEnv := "CAUTEM_SANDBOX_TOKEN_FILE="
+	credentialEnv := "QUARSHELL_SANDBOX_TOKEN_FILE="
 	credentialData := []byte(token + "\n")
 	if descriptorPath != "" && token != "" {
 		if sandbox == "" {
@@ -393,7 +394,7 @@ func prepareBrokerCredential(config networkBrokerConfig, environment []string) (
 			return nil, "", err
 		}
 		path = filepath.Join(config.LogDir, "supervisor-auth.bundle.json")
-		credentialEnv = "CAUTEM_SUPERVISOR_AUTH_BUNDLE_FILE="
+		credentialEnv = "QUARSHELL_SUPERVISOR_AUTH_BUNDLE_FILE="
 	}
 	if token == "" {
 		if sandboxToken != "" || runtimeGeneration != "" || gatewayExpirySeen || sandboxExpirySeen || authEpochSeen || sessionRotationSeen {
@@ -412,7 +413,7 @@ func prepareBrokerCredential(config networkBrokerConfig, environment []string) (
 	if err := validateBrokerCredentialPath(path); err != nil {
 		return nil, "", err
 	}
-	if credentialEnv == "CAUTEM_SUPERVISOR_AUTH_BUNDLE_FILE=" {
+	if credentialEnv == "QUARSHELL_SUPERVISOR_AUTH_BUNDLE_FILE=" {
 		if err := removeBrokerCredentialChecked(filepath.Join(config.LogDir, "supervisor-auth.token")); err != nil {
 			return nil, "", err
 		}

@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -60,7 +61,7 @@ func TestRuntimeLaunchCredentialsRequireUpstreamVerificationKeySet(t *testing.T)
 		t.Fatal("expired Gateway credential was accepted")
 	}
 	projected := withSupervisorCredentials(nil, noExpiry)
-	if !containsEnv(projected, "CAUTEM_GATEWAY_TOKEN_EXPIRES_AT=0") || !containsEnv(projected, "CAUTEM_SANDBOX_TOKEN_EXPIRES_AT=0") {
+	if !containsEnv(projected, "QUARSHELL_GATEWAY_TOKEN_EXPIRES_AT=0") || !containsEnv(projected, "QUARSHELL_SANDBOX_TOKEN_EXPIRES_AT=0") {
 		t.Fatalf("zero credential expiry was not preserved: %q", projected)
 	}
 	for _, mutate := range []func(*driver.RuntimeLaunchCredentials){
@@ -84,11 +85,11 @@ func TestRuntimeLaunchCredentialsRequireUpstreamVerificationKeySet(t *testing.T)
 }
 
 func TestWithProxySandboxIDReplacesCallerValue(t *testing.T) {
-	got := withGatewaySandboxID([]string{"KEEP=value", "CAUTEM_SANDBOX=runtime", "CAUTEM_GATEWAY_SANDBOX_ID=untrusted", "CAUTEM_GATEWAY_SANDBOX_ID=duplicate"}, "gateway-sandbox")
-	if want := []string{"KEEP=value", "CAUTEM_SANDBOX=runtime", "CAUTEM_GATEWAY_SANDBOX_ID=gateway-sandbox"}; !reflect.DeepEqual(got, want) {
+	got := withGatewaySandboxID([]string{"KEEP=value", "QUARSHELL_SANDBOX=runtime", "QUARSHELL_GATEWAY_SANDBOX_ID=untrusted", "QUARSHELL_GATEWAY_SANDBOX_ID=duplicate"}, "gateway-sandbox")
+	if want := []string{"KEEP=value", "QUARSHELL_SANDBOX=runtime", "QUARSHELL_GATEWAY_SANDBOX_ID=gateway-sandbox"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("withGatewaySandboxID() = %#v, want %#v", got, want)
 	}
-	if got := withGatewaySandboxID([]string{"KEEP=value", "CAUTEM_SANDBOX=runtime", "CAUTEM_GATEWAY_SANDBOX_ID=untrusted"}, ""); !reflect.DeepEqual(got, []string{"KEEP=value", "CAUTEM_SANDBOX=runtime"}) {
+	if got := withGatewaySandboxID([]string{"KEEP=value", "QUARSHELL_SANDBOX=runtime", "QUARSHELL_GATEWAY_SANDBOX_ID=untrusted"}, ""); !reflect.DeepEqual(got, []string{"KEEP=value", "QUARSHELL_SANDBOX=runtime"}) {
 		t.Fatalf("withGatewaySandboxID(empty) = %#v, want caller Gateway sandbox removal", got)
 	}
 }
@@ -97,8 +98,8 @@ func TestCloneVMLaunchSpecPreservesGatewayNetworkAndDeepCopiesInputs(t *testing.
 	original := vmCreateSpec{
 		Name: "sandbox", Image: "alpine:3.22", Workspace: "workspace",
 		GatewayURL: "https://gateway.example:7443", Command: []string{"/bin/sh"},
-		Env: []string{"A=B"}, ProxyEnv: []string{"CAUTEM_GATEWAY_URL=https://gateway.example:7443"},
-		ExtraHosts:   []string{"host.cautem.internal:192.0.2.1"},
+		Env: []string{"A=B"}, ProxyEnv: []string{"QUARSHELL_GATEWAY_URL=https://gateway.example:7443"},
+		ExtraHosts:   []string{"host.quarshell.internal:192.0.2.1"},
 		PublishPorts: []driver.PortPublish{{Host: 8080, Guest: 80}},
 		Labels:       map[string]string{"team": "vm"},
 	}
@@ -115,7 +116,7 @@ func TestCloneVMLaunchSpecPreservesGatewayNetworkAndDeepCopiesInputs(t *testing.
 	cloned.ExtraHosts[0] = "mutated"
 	cloned.PublishPorts[0].Host = 1
 	cloned.Labels["team"] = "mutated"
-	if original.Command[0] != "/bin/sh" || original.Env[0] != "A=B" || original.ProxyEnv[0] != "CAUTEM_GATEWAY_URL=https://gateway.example:7443" || original.ExtraHosts[0] != "host.cautem.internal:192.0.2.1" || original.PublishPorts[0].Host != 8080 || original.Labels["team"] != "vm" {
+	if original.Command[0] != "/bin/sh" || original.Env[0] != "A=B" || original.ProxyEnv[0] != "QUARSHELL_GATEWAY_URL=https://gateway.example:7443" || original.ExtraHosts[0] != "host.quarshell.internal:192.0.2.1" || original.PublishPorts[0].Host != 8080 || original.Labels["team"] != "vm" {
 		t.Fatal("launch spec clone aliases mutable create inputs")
 	}
 }
@@ -125,22 +126,22 @@ func TestSupervisorEnvironmentCarriesOnlySandboxJWTToGuestBoundary(t *testing.T)
 		SandboxID: "sandbox-a", GatewayID: "gw-a", GatewayToken: "gateway-secret", SandboxToken: "sandbox-secret",
 		RuntimeGeneration: "g0000000000000001", CredentialEpoch: 2,
 	}
-	env := withSupervisorBoundaryKeys([]string{"CAUTEM_GATEWAY_ID=wrong"}, credentials.GatewayID, credentials.SandboxID)
+	env := withSupervisorBoundaryKeys([]string{"QUARSHELL_GATEWAY_ID=wrong"}, credentials.GatewayID, credentials.SandboxID)
 	env = withSandboxSessionCredentials(env, credentials)
 	joined := strings.Join(env, "\n")
-	for _, expected := range []string{"CAUTEM_GATEWAY_ID=gw-a", "CAUTEM_GATEWAY_SANDBOX_ID=sandbox-a", "CAUTEM_SANDBOX_PROTOCOL_TOKEN=sandbox-secret", "CAUTEM_RUNTIME_GENERATION=g0000000000000001", "CAUTEM_AUTH_EPOCH=2"} {
+	for _, expected := range []string{"QUARSHELL_GATEWAY_ID=gw-a", "QUARSHELL_GATEWAY_SANDBOX_ID=sandbox-a", "QUARSHELL_SANDBOX_PROTOCOL_TOKEN=sandbox-secret", "QUARSHELL_RUNTIME_GENERATION=g0000000000000001", "QUARSHELL_AUTH_EPOCH=2"} {
 		if !strings.Contains(joined, expected) {
 			t.Errorf("guest supervisor environment missing %q", expected)
 		}
 	}
-	if strings.Contains(joined, "gateway-secret") || strings.Contains(joined, "CAUTEM_GATEWAY_ID=wrong") {
+	if strings.Contains(joined, "gateway-secret") || strings.Contains(joined, "QUARSHELL_GATEWAY_ID=wrong") {
 		t.Fatal("Gateway bearer or stale Gateway identity leaked into guest environment")
 	}
 }
 
 func TestProxyUsesControlPlaneSandboxIDInsteadOfRuntimeUUID(t *testing.T) {
-	env := withGatewaySandboxID([]string{"CAUTEM_SANDBOX=runtime-uuid"}, "sandbox-name")
-	if !containsEnv(env, "CAUTEM_GATEWAY_SANDBOX_ID=sandbox-name") || !containsEnv(env, "CAUTEM_SANDBOX=runtime-uuid") {
+	env := withGatewaySandboxID([]string{"QUARSHELL_SANDBOX=runtime-uuid"}, "sandbox-name")
+	if !containsEnv(env, "QUARSHELL_GATEWAY_SANDBOX_ID=sandbox-name") || !containsEnv(env, "QUARSHELL_SANDBOX=runtime-uuid") {
 		t.Fatalf("proxy sandbox identity = %q; want control-plane sandbox identity", env)
 	}
 }
@@ -250,7 +251,7 @@ func TestVMStartExecCopyLogsStopDeleteLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	workerPath := filepath.Join(root, "fake-worker")
-	workerScript := "#!/bin/sh\nCAUTEM_TEST_VM_WORKER=1 CAUTEM_EXPECTED_VM_ROOT_DISK=" + shellQuote(state.Rootfs) + " CAUTEM_EXPECTED_VM_IMAGE_DISK=" + shellQuote(state.WorkloadDisk) + " CAUTEM_EXPECTED_VM_OVERLAY_DISK=" + shellQuote(filepath.Join(assetDir, "overlay.ext4")) + " exec " + shellQuote(executable) + " -test.run='^TestFakeVMWorker$'\n"
+	workerScript := "#!/bin/sh\nQUARSHELL_TEST_VM_WORKER=1 QUARSHELL_EXPECTED_VM_ROOT_DISK=" + shellQuote(state.Rootfs) + " QUARSHELL_EXPECTED_VM_IMAGE_DISK=" + shellQuote(state.WorkloadDisk) + " QUARSHELL_EXPECTED_VM_OVERLAY_DISK=" + shellQuote(filepath.Join(assetDir, "overlay.ext4")) + " exec " + shellQuote(executable) + " -test.run='^TestFakeVMWorker$'\n"
 	if err := os.WriteFile(workerPath, []byte(workerScript), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -430,20 +431,20 @@ func TestVMStartExecCopyLogsStopDeleteLifecycle(t *testing.T) {
 }
 
 func TestFakeVMWorker(t *testing.T) {
-	if os.Getenv("CAUTEM_TEST_VM_WORKER") != "1" {
+	if os.Getenv("QUARSHELL_TEST_VM_WORKER") != "1" {
 		return
 	}
 	var config workerConfig
 	if err := json.NewDecoder(os.Stdin).Decode(&config); err != nil {
 		t.Fatalf("read worker configuration: %v", err)
 	}
-	if expected := os.Getenv("CAUTEM_EXPECTED_VM_IMAGE_DISK"); expected != "" && config.Launch.ImageDisk != expected {
+	if expected := os.Getenv("QUARSHELL_EXPECTED_VM_IMAGE_DISK"); expected != "" && config.Launch.ImageDisk != expected {
 		t.Fatalf("worker image disk = %q; want %q", config.Launch.ImageDisk, expected)
 	}
-	if expected := os.Getenv("CAUTEM_EXPECTED_VM_ROOT_DISK"); expected != "" && config.Launch.RootDisk != expected {
+	if expected := os.Getenv("QUARSHELL_EXPECTED_VM_ROOT_DISK"); expected != "" && config.Launch.RootDisk != expected {
 		t.Fatalf("worker bootstrap disk = %q; want %q", config.Launch.RootDisk, expected)
 	}
-	if expected := os.Getenv("CAUTEM_EXPECTED_VM_OVERLAY_DISK"); expected != "" && config.Launch.OverlayDisk != expected {
+	if expected := os.Getenv("QUARSHELL_EXPECTED_VM_OVERLAY_DISK"); expected != "" && config.Launch.OverlayDisk != expected {
 		t.Fatalf("worker writable overlay disk = %q; want %q", config.Launch.OverlayDisk, expected)
 	}
 	if config.Launch.RootDisk == config.Launch.ImageDisk || config.Launch.OverlayDisk == config.Launch.RootDisk || config.Launch.OverlayDisk == config.Launch.ImageDisk {
@@ -451,8 +452,8 @@ func TestFakeVMWorker(t *testing.T) {
 	}
 	var expectedToken string
 	for _, value := range config.Launch.Env {
-		if strings.HasPrefix(value, "CAUTEM_VM_CONTROL_TOKEN=") {
-			expectedToken = strings.TrimPrefix(value, "CAUTEM_VM_CONTROL_TOKEN=")
+		if strings.HasPrefix(value, "QUARSHELL_VM_CONTROL_TOKEN=") {
+			expectedToken = strings.TrimPrefix(value, "QUARSHELL_VM_CONTROL_TOKEN=")
 		}
 	}
 	if len(expectedToken) != 64 {
@@ -509,6 +510,7 @@ func TestFakeVMWorker(t *testing.T) {
 				switch request.Operation {
 				case "start-workload":
 					response.WorkloadUID, response.WorkloadGID = 1000, 1001
+					response.SessionID = request.SessionID
 				case "exec":
 					response.Stdout = []byte("fixture-exec")
 				case "copy-from":
@@ -602,4 +604,20 @@ func writeFakeExt4Fixture(path string, mode os.FileMode) error {
 	image := make([]byte, 4096)
 	image[1024+0x38], image[1024+0x39] = 0x53, 0xef
 	return os.WriteFile(path, image, mode)
+}
+
+func TestWatchWorkerDoesNotActOnReplacementProcessHandle(t *testing.T) {
+	driver := NewWithHostConfig(HostConfig{StateDir: t.TempDir()})
+	oldWorker := &exec.Cmd{}
+	newWorker := &exec.Cmd{}
+	driver.workers["sandbox"] = newWorker
+	driver.workerDone["sandbox"] = make(chan error)
+	done := make(chan error)
+	close(done)
+
+	driver.watchWorker("sandbox", t.TempDir(), oldWorker, done)
+
+	if driver.workers["sandbox"] != newWorker {
+		t.Fatal("old worker watcher removed or replaced the current worker handle")
+	}
 }
