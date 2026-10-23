@@ -5,10 +5,11 @@ go 1.27.0
 toolchain go1.27.3
 
 require (
-	github.com/KLORQ/quarshell-core v0.5.0
-	github.com/KLORQ/quarshell-driver v0.2.0
-	github.com/KLORQ/quarshell-proto v0.2.3
-	github.com/KLORQ/quarshell-proxy v0.1.2
+	github.com/KLORQ/quarshell-core v0.5.1
+	github.com/KLORQ/quarshell-driver v0.2.2
+	github.com/KLORQ/quarshell-policy v0.2.1
+	github.com/KLORQ/quarshell-proto v0.2.4
+	github.com/KLORQ/quarshell-proxy v0.1.3
 	github.com/containerd/errdefs v1.0.0
 	github.com/creack/pty v1.1.24
 	github.com/ebitengine/purego v0.10.1
