@@ -226,7 +226,7 @@ func (s *controlServer) serve(connection net.Conn) {
 		_ = writeResponse(connection, Response{Error: "invalid request framing"})
 		return
 	}
-	if request.Operation == "exec-terminal" || request.Operation == "attach-terminal" || request.Operation == "terminate-terminal" || request.Operation == "exec-stream" {
+	if request.Operation == "exec-terminal" || request.Operation == "attach-terminal" || request.Operation == "terminate-terminal" || request.Operation == "exec-stream" || request.Operation == "attach-exec-stream" || request.Operation == "dial-loopback" {
 		if err := s.validateRequest(request); err != nil {
 			_ = writeResponse(connection, Response{Error: err.Error()})
 			return
@@ -234,9 +234,13 @@ func (s *controlServer) serve(connection net.Conn) {
 		if request.Operation == "exec-terminal" {
 			s.execTerminal(connection, request)
 		} else if request.Operation == "attach-terminal" {
-			s.attachTerminal(connection, request.SessionID)
+			s.attachTerminalFromCursor(connection, request.SessionID, request.OutputCursor, request.OutputCursorSet)
 		} else if request.Operation == "terminate-terminal" {
 			s.terminateTerminal(connection, request.SessionID)
+		} else if request.Operation == "attach-exec-stream" {
+			s.attachRetainedExecStream(connection, request.SessionID, request.OutputCursor, request.OutputCursorSet)
+		} else if request.Operation == "dial-loopback" {
+			s.dialLoopback(connection, request.TargetHost, request.TargetPort)
 		} else {
 			s.execStream(connection, request)
 		}
@@ -252,7 +256,7 @@ func (s *controlServer) serve(connection net.Conn) {
 			request.SessionID = s.mainProcessSessionID
 			s.mu.Unlock()
 		}
-		s.attachMainProcess(connection, request.SessionID)
+		s.attachMainProcessFromCursor(connection, request.SessionID, request.OutputCursor, request.OutputCursorSet)
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -284,6 +288,48 @@ func (s *controlServer) serve(connection net.Conn) {
 	}
 }
 
+func (s *controlServer) attachRetainedExecStream(connection net.Conn, id string, cursor uint64, cursorSet bool) {
+	if !validMainSessionID(id) {
+		_ = writeResponse(connection, Response{Error: "exec stream session ID is invalid"})
+		return
+	}
+	s.mainProcessMu.Lock()
+	process := s.mainProcesses[id]
+	s.mainProcessMu.Unlock()
+	if process == nil {
+		_ = writeResponse(connection, Response{Error: "exec stream session not found"})
+		return
+	}
+	process.attachFromCursor(connection, cursor, cursorSet)
+}
+
+func (s *controlServer) retainedExecStream(id string) (*retainedMainProcess, error) {
+	if !validMainSessionID(id) {
+		return nil, fmt.Errorf("exec stream session ID is invalid")
+	}
+	s.mainProcessMu.Lock()
+	process := s.mainProcesses[id]
+	s.mainProcessMu.Unlock()
+	if process == nil {
+		return nil, fmt.Errorf("exec stream session not found")
+	}
+	return process, nil
+}
+
+func (s *controlServer) retainedTerminal(id string) (*retainedTerminal, error) {
+	if !validMainSessionID(id) {
+		return nil, fmt.Errorf("terminal session ID is invalid")
+	}
+	s.terminalMu.Lock()
+	s.pruneTerminalsLocked(time.Now())
+	process := s.terminals[id]
+	s.terminalMu.Unlock()
+	if process == nil {
+		return nil, fmt.Errorf("terminal session not found")
+	}
+	return process, nil
+}
+
 func (s *controlServer) validateRequest(request Request) error {
 	if request.Version != ProtocolVersion {
 		return fmt.Errorf("unsupported control protocol version %d", request.Version)
@@ -294,12 +340,23 @@ func (s *controlServer) validateRequest(request Request) error {
 	if request.User != "" && request.Operation != "start-workload" && request.Operation != "exec" && request.Operation != "exec-terminal" && request.Operation != "exec-stream" {
 		return fmt.Errorf("workload identity is only valid for workload operations")
 	}
-	if request.Signal != "" && request.Operation != "signal-main-process" {
-		return fmt.Errorf("signal is only valid for signal-main-process")
+	if request.Signal != "" && request.Operation != "signal-main-process" && request.Operation != "signal-exec-stream" && request.Operation != "signal-terminal" {
+		return fmt.Errorf("signal is only valid for process signal operations")
 	}
-	if request.Operation == "signal-main-process" {
+	if request.Operation == "signal-main-process" || request.Operation == "signal-exec-stream" || request.Operation == "signal-terminal" {
 		if _, ok := guestTerminalSignal(request.Signal); !ok {
-			return fmt.Errorf("main-process signal is not supported")
+			return fmt.Errorf("process signal is not supported")
+		}
+	}
+	if request.Operation == "dial-loopback" {
+		ip := net.ParseIP(request.TargetHost)
+		if ip == nil || !ip.IsLoopback() || request.TargetPort == 0 || request.TargetPort > 65535 {
+			return fmt.Errorf("loopback target must be a literal loopback IP and valid TCP port")
+		}
+	}
+	if request.Operation == "wait-exec-stream" || request.Operation == "signal-exec-stream" || request.Operation == "terminate-exec-stream" || request.Operation == "wait-terminal" || request.Operation == "signal-terminal" {
+		if !validMainSessionID(request.SessionID) {
+			return fmt.Errorf("exec stream session ID is invalid")
 		}
 	}
 	if !s.authorizedRequest(request) {
@@ -370,6 +427,53 @@ func (s *controlServer) dispatch(ctx context.Context, request Request) Response 
 			return Response{Error: err.Error()}
 		}
 		return Response{}
+	case "wait-terminal":
+		process, err := s.retainedTerminal(request.SessionID)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		code, err := process.waitForExit(ctx)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{ExitCode: code, Finished: true}
+	case "signal-terminal":
+		process, err := s.retainedTerminal(request.SessionID)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		if err := process.signal(request.Signal); err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{}
+	case "wait-exec-stream":
+		process, err := s.retainedExecStream(request.SessionID)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		code, err := process.waitForExit(ctx)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{ExitCode: code, Finished: true}
+	case "signal-exec-stream":
+		process, err := s.retainedExecStream(request.SessionID)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		if err := process.signal(request.Signal); err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{}
+	case "terminate-exec-stream":
+		process, err := s.retainedExecStream(request.SessionID)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		if err := process.terminate(ctx); err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{ExitCode: process.exitCodeValue(), Finished: true}
 	case "start-ssh":
 		if err := s.startSSHDaemon(); err != nil {
 			return Response{Error: err.Error()}
@@ -1319,7 +1423,7 @@ func (s *controlServer) execTerminal(connection net.Conn, request Request) {
 		process.attach(connection)
 		return
 	}
-	if err := writeResponse(connection, Response{PID: command.Process.Pid}); err != nil {
+	if err := writeResponse(connection, Response{PID: command.Process.Pid, InputOwner: true}); err != nil {
 		_ = terminal.Close()
 		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 		_ = command.Wait()
@@ -1418,6 +1522,10 @@ func guestTerminalSignal(name string) (syscall.Signal, bool) {
 }
 
 func (s *controlServer) execStream(connection net.Conn, request Request) {
+	if !validMainSessionID(request.SessionID) {
+		_ = writeResponse(connection, Response{Error: "exec stream session ID is invalid"})
+		return
+	}
 	if len(request.Argv) == 0 {
 		_ = writeResponse(connection, Response{Error: "exec argv is empty"})
 		return
@@ -1445,123 +1553,58 @@ func (s *controlServer) execStream(connection net.Conn, request Request) {
 		command.SysProcAttr.Credential = credential
 	}
 	command.Dir = guestWorkdir(request.WorkDir)
-	stdin, err := command.StdinPipe()
+	childStdin, stdin, err := os.Pipe()
 	if err != nil {
 		_ = writeResponse(connection, Response{Error: fmt.Sprintf("open exec stdin: %v", err)})
 		return
 	}
-	stdout, stdoutWriter, err := os.Pipe()
+	stdout, childStdout, err := os.Pipe()
 	if err != nil {
 		_ = stdin.Close()
+		_ = childStdin.Close()
 		_ = writeResponse(connection, Response{Error: fmt.Sprintf("open exec stdout: %v", err)})
 		return
 	}
-	stderr, stderrWriter, err := os.Pipe()
+	stderr, childStderr, err := os.Pipe()
 	if err != nil {
 		_ = stdin.Close()
+		_ = childStdin.Close()
 		_ = stdout.Close()
-		_ = stdoutWriter.Close()
+		_ = childStdout.Close()
 		_ = writeResponse(connection, Response{Error: fmt.Sprintf("open exec stderr: %v", err)})
 		return
 	}
-	defer stdout.Close()
-	defer stderr.Close()
-	command.Stdout = stdoutWriter
-	command.Stderr = stderrWriter
+	command.Stdin = childStdin
+	command.Stdout = childStdout
+	command.Stderr = childStderr
 	if err := command.Start(); err != nil {
 		_ = writeResponse(connection, Response{Error: fmt.Sprintf("start guest command: %v", err)})
 		_ = stdin.Close()
-		_ = stdoutWriter.Close()
-		_ = stderrWriter.Close()
+		_ = childStdin.Close()
+		_ = stdout.Close()
+		_ = childStdout.Close()
+		_ = stderr.Close()
+		_ = childStderr.Close()
 		return
 	}
-	_ = stdoutWriter.Close()
-	_ = stderrWriter.Close()
-	if err := writeResponse(connection, Response{PID: command.Process.Pid}); err != nil {
+	_ = childStdin.Close()
+	_ = childStdout.Close()
+	_ = childStderr.Close()
+	if err := s.retainMainProcess(request.SessionID, command, stdin, stdout, stderr, false, nil); err != nil {
 		_ = stdin.Close()
 		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 		_ = command.Wait()
+		_ = stdout.Close()
+		_ = stderr.Close()
+		_ = writeResponse(connection, Response{Error: fmt.Sprintf("retain exec stream process: %v", err)})
 		return
 	}
-	processDone := make(chan struct{})
-	var frameMu sync.Mutex
-	writeOutput := func(kind string, data []byte) error {
-		frameMu.Lock()
-		defer frameMu.Unlock()
-		return writeTerminalFrame(connection, TerminalFrame{Type: kind, Data: append([]byte(nil), data...)})
+	s.mainProcessMu.Lock()
+	process := s.mainProcesses[request.SessionID]
+	s.mainProcessMu.Unlock()
+	if process != nil {
+		process.attach(connection)
 	}
-	var outputWG sync.WaitGroup
-	copyOutput := func(reader io.Reader, kind string) {
-		defer outputWG.Done()
-		buffer := make([]byte, 32<<10)
-		for {
-			count, readErr := reader.Read(buffer)
-			if count > 0 {
-				if err := writeOutput(kind, buffer[:count]); err != nil {
-					terminatePTYProcess(command.Process.Pid, processDone)
-					return
-				}
-			}
-			if readErr != nil {
-				if readErr != io.EOF {
-					terminatePTYProcess(command.Process.Pid, processDone)
-				}
-				return
-			}
-		}
-	}
-	outputWG.Add(2)
-	go copyOutput(stdout, "stdout")
-	go copyOutput(stderr, "stderr")
-	inputDone := make(chan struct{})
-	go func() {
-		defer close(inputDone)
-		stdinClosed := false
-		for {
-			payload, readErr := ReadFrame(connection)
-			if readErr != nil {
-				terminatePTYProcess(command.Process.Pid, processDone)
-				return
-			}
-			var frame TerminalFrame
-			decoder := json.NewDecoder(strings.NewReader(string(payload)))
-			decoder.DisallowUnknownFields()
-			if err := decoder.Decode(&frame); err != nil || decoder.Decode(new(any)) != io.EOF {
-				terminatePTYProcess(command.Process.Pid, processDone)
-				return
-			}
-			switch frame.Type {
-			case "stdin":
-				if stdinClosed {
-					terminatePTYProcess(command.Process.Pid, processDone)
-					return
-				}
-				if len(frame.Data) > 0 {
-					if _, err := stdin.Write(frame.Data); err != nil {
-						terminatePTYProcess(command.Process.Pid, processDone)
-						return
-					}
-				}
-			case "eof":
-				if !stdinClosed {
-					stdinClosed = true
-					_ = stdin.Close()
-				}
-			default:
-				terminatePTYProcess(command.Process.Pid, processDone)
-				return
-			}
-		}
-	}()
-	waitErr := command.Wait()
-	close(processDone)
-	_ = stdin.Close()
-	outputWG.Wait()
-	frameMu.Lock()
-	_ = writeTerminalFrame(connection, TerminalFrame{Type: "exit", ExitCode: normalizeGuestExitCode(waitErr)})
-	frameMu.Unlock()
-	_ = connection.Close()
-	<-inputDone
 }
 
 func writeTerminalFrame(writer io.Writer, frame TerminalFrame) error {

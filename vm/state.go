@@ -55,6 +55,7 @@ type sandboxState struct {
 	RuntimeDigest           string    `json:"runtime_digest,omitempty"`
 	MainProcessTTYSessionID string    `json:"main_process_tty_session_id,omitempty"`
 	MainProcessSessionID    string    `json:"main_process_session_id,omitempty"`
+	MainProcessTTY          bool      `json:"main_process_tty,omitempty"`
 	VCPUs                   uint8     `json:"vcpus,omitempty"`
 	MemoryMiB               uint32    `json:"memory_mib,omitempty"`
 	Status                  string    `json:"status"`

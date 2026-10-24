@@ -708,6 +708,7 @@ func (d *Driver) startLocked(ctx context.Context, store *stateStore, state sandb
 	state.Status = "running"
 	state.MainProcessTTYSessionID = mainProcessTTYSessionID
 	state.MainProcessSessionID = mainProcessTTYSessionID
+	state.MainProcessTTY = spec.TTY
 	state.WorkloadUID = startResponse.WorkloadUID
 	state.WorkloadGID = startResponse.WorkloadGID
 	state.MainProcessExitCode = nil
@@ -747,16 +748,18 @@ func (d *Driver) RecordMainProcessExit(ctx context.Context, id core.ID, instance
 		}
 		return nil
 	}
-	if state.Status != "running" {
+	if state.Status != "running" && state.Status != "stopped" {
 		return fmt.Errorf("vm driver: cannot record main process exit while sandbox is %q", state.Status)
 	}
 	code := exitCode
 	state.MainProcessExitCode = &code
 	state.MainProcessInstanceID = instanceID
-	if exitCode == 0 {
-		state.Status = "completed"
-	} else {
-		state.Status = "error"
+	if state.Status == "running" {
+		if exitCode == 0 {
+			state.Status = "completed"
+		} else {
+			state.Status = "error"
+		}
 	}
 	state.UpdatedAt = time.Now().UTC()
 	return store.save(state)

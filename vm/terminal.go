@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -87,7 +86,7 @@ func (d *Driver) OpenExecTerminal(ctx context.Context, id core.ID, request drive
 	if rows == 0 {
 		rows = defaultTerminalRows
 	}
-	connection, err := d.openControlStream(ctx, state.ID, guestSocket, controlRequest{
+	connection, handshake, err := d.openControlStream(ctx, state.ID, guestSocket, controlRequest{
 		Operation: "exec-terminal", Argv: append([]string(nil), request.Argv...), Env: env,
 		WorkDir: workdir, User: launchSpec.User, NoLoginShell: request.NoLoginShell,
 		Columns: columns, Rows: rows, SessionID: request.SessionID,
@@ -95,7 +94,8 @@ func (d *Driver) OpenExecTerminal(ctx context.Context, id core.ID, request drive
 	if err != nil {
 		return nil, err
 	}
-	session := newVMExecTerminalSession(connection, request.SessionID)
+	process := &vmBoundaryProcess{driver: d, sandboxID: id, sessionID: request.SessionID, tty: true}
+	session := newVMExecTerminalSession(connection, request.SessionID, handshake.InputOwner, process)
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -109,6 +109,15 @@ func (d *Driver) OpenExecTerminal(ctx context.Context, id core.ID, request drive
 // AttachExecTerminal reconnects to a retained guest PTY process after its
 // previous control stream disconnected.
 func (d *Driver) AttachExecTerminal(ctx context.Context, id core.ID, sessionID string) (driver.ExecTerminalSession, error) {
+	return d.attachExecTerminalFromCursor(ctx, id, sessionID, 0, false)
+}
+
+// AttachExecTerminalFromCursor resumes a retained PTY after a durable output cursor.
+func (d *Driver) AttachExecTerminalFromCursor(ctx context.Context, id core.ID, sessionID string, cursor uint64) (driver.ExecTerminalSession, error) {
+	return d.attachExecTerminalFromCursor(ctx, id, sessionID, cursor, true)
+}
+
+func (d *Driver) attachExecTerminalFromCursor(ctx context.Context, id core.ID, sessionID string, cursor uint64, cursorSet bool) (driver.ExecTerminalSession, error) {
 	if d == nil || ctx == nil || strings.TrimSpace(sessionID) == "" {
 		return nil, fmt.Errorf("vm driver: AttachExecTerminal requires a driver, context, and session ID")
 	}
@@ -127,11 +136,12 @@ func (d *Driver) AttachExecTerminal(ctx context.Context, id core.ID, sessionID s
 		return nil, fmt.Errorf("vm terminal attach: sandbox %q is %s", state.Name, state.Status)
 	}
 	_, guestSocket, _ := workerSocketPaths(store.root, state.ID)
-	connection, err := d.openControlStream(ctx, state.ID, guestSocket, controlRequest{Operation: "attach-terminal", SessionID: sessionID})
+	connection, handshake, err := d.openControlStream(ctx, state.ID, guestSocket, controlRequest{Operation: "attach-terminal", SessionID: sessionID, OutputCursor: cursor, OutputCursorSet: cursorSet})
 	if err != nil {
 		return nil, err
 	}
-	session := newVMExecTerminalSession(connection, sessionID)
+	process := &vmBoundaryProcess{driver: d, sandboxID: id, sessionID: sessionID, tty: true}
+	session := newVMExecTerminalSession(connection, sessionID, handshake.InputOwner, process)
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -163,7 +173,7 @@ func (d *Driver) TerminateExecTerminal(ctx context.Context, id core.ID, sessionI
 		return fmt.Errorf("vm terminal terminate: sandbox %q is %s", state.Name, state.Status)
 	}
 	_, guestSocket, _ := workerSocketPaths(store.root, state.ID)
-	connection, err := d.openControlStream(ctx, state.ID, guestSocket, controlRequest{Operation: "terminate-terminal", SessionID: sessionID})
+	connection, _, err := d.openControlStream(ctx, state.ID, guestSocket, controlRequest{Operation: "terminate-terminal", SessionID: sessionID})
 	if err != nil {
 		return err
 	}
@@ -190,6 +200,15 @@ func validTerminalSessionID(id string) bool {
 // process. The session ID is durable, so a Gateway transport reconnect can
 // reattach without creating a second main process.
 func (d *Driver) OpenMainProcessTTY(ctx context.Context, id core.ID, columns, rows uint32) (io.ReadWriteCloser, error) {
+	return d.openMainProcessTTYFromCursor(ctx, id, columns, rows, 0, false)
+}
+
+// OpenMainProcessTTYFromCursor resumes canonical workload output from a durable cursor.
+func (d *Driver) OpenMainProcessTTYFromCursor(ctx context.Context, id core.ID, columns, rows uint32, cursor uint64) (io.ReadWriteCloser, error) {
+	return d.openMainProcessTTYFromCursor(ctx, id, columns, rows, cursor, true)
+}
+
+func (d *Driver) openMainProcessTTYFromCursor(ctx context.Context, id core.ID, columns, rows uint32, cursor uint64, cursorSet bool) (io.ReadWriteCloser, error) {
 	if d == nil || ctx == nil {
 		return nil, fmt.Errorf("vm driver: OpenMainProcessTTY requires a driver and context")
 	}
@@ -200,7 +219,12 @@ func (d *Driver) OpenMainProcessTTY(ctx context.Context, id core.ID, columns, ro
 	if err != nil {
 		return nil, err
 	}
-	session, err := d.AttachExecTerminal(ctx, id, sessionID)
+	var session driver.ExecTerminalSession
+	if cursorSet {
+		session, err = d.AttachExecTerminalFromCursor(ctx, id, sessionID, cursor)
+	} else {
+		session, err = d.AttachExecTerminal(ctx, id, sessionID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("attach VM main-process TTY: %w", err)
 	}
@@ -330,51 +354,51 @@ func hasEnvironmentKey(env []string, want string) bool {
 	return false
 }
 
-func (d *Driver) openControlStream(ctx context.Context, id, socket string, request controlRequest) (net.Conn, error) {
+func (d *Driver) openControlStream(ctx context.Context, id, socket string, request controlRequest) (net.Conn, controlResponse, error) {
 	store, err := openStateStore(d.host.StateDir)
 	if err != nil {
-		return nil, err
+		return nil, controlResponse{}, err
 	}
 	sandboxDir := filepath.Join(store.root, "sandboxes", id)
 	for attempt := 0; attempt < 2; attempt++ {
 		d.rotationMu.Lock()
 		if err := d.completePendingControlTokenRotation(ctx, sandboxDir, socket); err != nil {
 			d.rotationMu.Unlock()
-			return nil, err
+			return nil, controlResponse{}, err
 		}
 		token, err := readControlToken(sandboxDir)
 		d.rotationMu.Unlock()
 		if err != nil {
-			return nil, err
+			return nil, controlResponse{}, err
 		}
 		request.AuthToken = token
-		connection, err := writeControlStreamRequest(ctx, socket, request)
+		connection, response, err := writeControlStreamRequest(ctx, socket, request)
 		if err == nil {
-			return connection, nil
+			return connection, response, nil
 		}
 		if !isGuestControlUnauthorized(err) || attempt != 0 || ctx.Err() != nil {
-			return nil, err
+			return nil, controlResponse{}, err
 		}
 		d.rotationMu.Lock()
 		err = d.completePendingControlTokenRotation(ctx, sandboxDir, socket)
 		d.rotationMu.Unlock()
 		if err != nil {
-			return nil, err
+			return nil, controlResponse{}, err
 		}
 	}
-	return nil, fmt.Errorf("VM terminal control authentication retry exhausted")
+	return nil, controlResponse{}, fmt.Errorf("VM terminal control authentication retry exhausted")
 }
 
-func writeControlStreamRequest(ctx context.Context, socket string, request controlRequest) (net.Conn, error) {
+func writeControlStreamRequest(ctx context.Context, socket string, request controlRequest) (net.Conn, controlResponse, error) {
 	var response controlResponse
 	request.Version = vmguest.ProtocolVersion
 	encoded, err := json.Marshal(request)
 	if err != nil {
-		return nil, fmt.Errorf("encode VM terminal request: %w", err)
+		return nil, controlResponse{}, fmt.Errorf("encode VM terminal request: %w", err)
 	}
 	connection, err := (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	if err != nil {
-		return nil, fmt.Errorf("connect VM guest terminal socket: %w", err)
+		return nil, controlResponse{}, fmt.Errorf("connect VM guest terminal socket: %w", err)
 	}
 	stopCancel := make(chan struct{})
 	go func() {
@@ -390,50 +414,59 @@ func writeControlStreamRequest(ctx context.Context, socket string, request contr
 	if err := vmguest.WriteFrame(connection, encoded); err != nil {
 		close(stopCancel)
 		_ = connection.Close()
-		return nil, fmt.Errorf("write VM terminal request: %w", err)
+		return nil, controlResponse{}, fmt.Errorf("write VM terminal request: %w", err)
 	}
 	answer, err := vmguest.ReadFrame(connection)
 	if err != nil {
 		close(stopCancel)
 		_ = connection.Close()
-		return nil, fmt.Errorf("read VM terminal handshake: %w", err)
+		return nil, controlResponse{}, fmt.Errorf("read VM terminal handshake: %w", err)
 	}
 	if err := json.Unmarshal(answer, &response); err != nil {
 		close(stopCancel)
 		_ = connection.Close()
-		return nil, fmt.Errorf("decode VM terminal handshake: %w", err)
+		return nil, controlResponse{}, fmt.Errorf("decode VM terminal handshake: %w", err)
 	}
 	if response.Version != vmguest.ProtocolVersion {
 		close(stopCancel)
 		_ = connection.Close()
-		return nil, fmt.Errorf("unsupported VM terminal protocol response version %d", response.Version)
+		return nil, controlResponse{}, fmt.Errorf("unsupported VM terminal protocol response version %d", response.Version)
 	}
 	if response.Error != "" {
 		close(stopCancel)
 		_ = connection.Close()
-		return nil, fmt.Errorf("guest control exec-terminal: %s", response.Error)
+		return nil, controlResponse{}, fmt.Errorf("guest control exec-terminal: %s", response.Error)
 	}
 	close(stopCancel)
-	return connection, nil
+	return connection, response, nil
+}
+
+type vmTerminalOutputFrame struct {
+	data     []byte
+	sequence uint64
 }
 
 type vmExecTerminalSession struct {
 	connection net.Conn
 	sessionID  string
-	output     *io.PipeReader
-	outputSink *io.PipeWriter
+	inputOwner bool
+	outputs    chan vmTerminalOutputFrame
+	readMu     sync.Mutex
+	pending    []byte
+	pendingSeq uint64
 	done       chan struct{}
 	writeMu    sync.Mutex
 	stateMu    sync.Mutex
 	exitCode   int
 	readErr    error
 	closeOnce  sync.Once
+	closed     chan struct{}
+	process    *vmBoundaryProcess
 }
 
-func newVMExecTerminalSession(connection net.Conn, sessionID string) *vmExecTerminalSession {
-	reader, writer := io.Pipe()
+func newVMExecTerminalSession(connection net.Conn, sessionID string, inputOwner bool, process *vmBoundaryProcess) *vmExecTerminalSession {
 	session := &vmExecTerminalSession{
-		connection: connection, sessionID: sessionID, output: reader, outputSink: writer, done: make(chan struct{}),
+		connection: connection, sessionID: sessionID, inputOwner: inputOwner, outputs: make(chan vmTerminalOutputFrame), done: make(chan struct{}), closed: make(chan struct{}), process: process,
 	}
 	go session.readFrames()
 	return session
@@ -441,11 +474,53 @@ func newVMExecTerminalSession(connection net.Conn, sessionID string) *vmExecTerm
 
 func (session *vmExecTerminalSession) SessionID() string { return session.sessionID }
 
+func (session *vmExecTerminalSession) BoundaryProcess() driver.BoundaryProcess {
+	return session.process
+}
+
 func (session *vmExecTerminalSession) Read(payload []byte) (int, error) {
-	return session.output.Read(payload)
+	session.readMu.Lock()
+	defer session.readMu.Unlock()
+	if len(session.pending) == 0 {
+		frame, ok := <-session.outputs
+		if !ok {
+			return 0, session.outputReadError()
+		}
+		session.pending, session.pendingSeq = frame.data, frame.sequence
+	}
+	count := copy(payload, session.pending)
+	session.pending = session.pending[count:]
+	return count, nil
+}
+
+func (session *vmExecTerminalSession) ReadOutput() ([]byte, uint64, error) {
+	session.readMu.Lock()
+	defer session.readMu.Unlock()
+	if len(session.pending) != 0 {
+		data, cursor := append([]byte(nil), session.pending...), session.pendingSeq
+		session.pending = nil
+		return data, cursor, nil
+	}
+	frame, ok := <-session.outputs
+	if !ok {
+		return nil, 0, session.outputReadError()
+	}
+	return frame.data, frame.sequence, nil
+}
+
+func (session *vmExecTerminalSession) outputReadError() error {
+	session.stateMu.Lock()
+	defer session.stateMu.Unlock()
+	if session.readErr != nil {
+		return session.readErr
+	}
+	return io.EOF
 }
 
 func (session *vmExecTerminalSession) Write(payload []byte) (int, error) {
+	if !session.inputOwner {
+		return 0, fmt.Errorf("VM terminal attachment does not own stdin")
+	}
 	written := 0
 	for len(payload) > 0 {
 		count := len(payload)
@@ -462,6 +537,9 @@ func (session *vmExecTerminalSession) Write(payload []byte) (int, error) {
 }
 
 func (session *vmExecTerminalSession) CloseStdin() error {
+	if !session.inputOwner {
+		return fmt.Errorf("VM terminal attachment does not own stdin")
+	}
 	return session.writeFrame(vmguest.TerminalFrame{Type: "eof"})
 }
 
@@ -517,8 +595,8 @@ func (session *vmExecTerminalSession) Wait(ctx context.Context) (int, error) {
 func (session *vmExecTerminalSession) Close() error {
 	var closeErr error
 	session.closeOnce.Do(func() {
+		close(session.closed)
 		closeErr = session.connection.Close()
-		_ = session.output.Close()
 	})
 	return closeErr
 }
@@ -554,9 +632,11 @@ func (session *vmExecTerminalSession) readFrames() {
 			if len(frame.Data) == 0 {
 				continue
 			}
-			if _, err := session.outputSink.Write(frame.Data); err != nil {
-				terminalErr = err
-				_ = session.connection.Close()
+			select {
+			case session.outputs <- vmTerminalOutputFrame{data: frame.Data, sequence: frame.Sequence}:
+			case <-session.closed:
+				terminalErr = io.EOF
+				goto finished
 			}
 		case "exit":
 			session.stateMu.Lock()
@@ -576,10 +656,6 @@ finished:
 	session.stateMu.Lock()
 	session.readErr = terminalErr
 	session.stateMu.Unlock()
-	if terminalErr != nil && !errors.Is(terminalErr, io.EOF) {
-		_ = session.outputSink.CloseWithError(terminalErr)
-	} else {
-		_ = session.outputSink.Close()
-	}
+	close(session.outputs)
 	close(session.done)
 }

@@ -179,6 +179,33 @@ func TestRecordMainProcessExitPersistsCanonicalTerminalResult(t *testing.T) {
 	}
 }
 
+func TestRecordMainProcessExitAcceptsLateReportAfterWorkerStop(t *testing.T) {
+	stateRoot := t.TempDir()
+	store, err := openStateStore(stateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.create("late-terminal-result", "fixture:latest", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Status = "stopped"
+	if err := store.save(state); err != nil {
+		t.Fatal(err)
+	}
+	d := NewWithHostConfig(HostConfig{StateDir: stateRoot})
+	if err := d.RecordMainProcessExit(context.Background(), core.ID(state.ID), "instance-1", 137); err != nil {
+		t.Fatalf("late supervisor exit report: %v", err)
+	}
+	recorded, err := store.load(state.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recorded.Status != "stopped" || recorded.MainProcessExitCode == nil || *recorded.MainProcessExitCode != 137 {
+		t.Fatalf("late VM terminal result = %+v", recorded)
+	}
+}
+
 func TestVMStartExecCopyLogsStopDeleteLifecycle(t *testing.T) {
 	root, err := os.MkdirTemp("/tmp", "vm-life-")
 	if err != nil {

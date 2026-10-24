@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -249,6 +250,7 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 	}
 	assertLiveVMPlatformState(t, vmEvents, "running")
 	firstMainPID := assertLiveMainProcessTTY(t, ctx, first, handle.ID, "first")
+	assertLiveRunningBoundary(t, ctx, first, handle.ID, forwardEchoHelper)
 	initialRuntimeGeneration := assertLiveIsolationDescriptor(t, host.StateDir, handle.ID)
 	initialControlCert, initialControlIdentity := liveVMControlClientIdentity(t, host.StateDir, handle.ID)
 	if !strings.HasSuffix(initialControlIdentity, "/generation/"+initialRuntimeGeneration) {
@@ -461,10 +463,23 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 	if err := terminal.Start(ctx, signalHandle.ID); err != nil {
 		t.Fatalf("start main-process signal MicroVM: %v", err)
 	}
-	if err := terminal.SignalMainProcess(ctx, signalHandle.ID, driver.ExecSignalKill); err != nil {
-		t.Fatalf("send KILL to canonical main process: %v", err)
+	mainBoundary, err := terminal.OpenMainProcessBoundary(ctx, signalHandle.ID)
+	if err != nil {
+		t.Fatalf("open canonical main-process BoundaryProcess: %v", err)
 	}
-	waitForSupervisorExitCode(t, ctx, controlDetailsPath, 137)
+	if err := mainBoundary.Terminate(ctx); err != nil {
+		t.Fatalf("terminate canonical main process through BoundaryProcess: %v", err)
+	}
+	// The standalone live fixture has no Gateway process to receive the
+	// supervisor RPC. Wait for the VM to stop, then simulate Gateway's durable
+	// forwarding of the authenticated supervisor result to the backend.
+	waitForLiveVMStoppedState(t, ctx, host.StateDir, string(signalHandle.ID))
+	if err := terminal.RecordMainProcessExit(ctx, signalHandle.ID, "live-supervisor-instance", 137); err != nil {
+		t.Fatalf("persist supervisor-reported canonical process exit: %v", err)
+	}
+	if exitCode, err := mainBoundary.Wait(ctx); err != nil || exitCode != 137 {
+		t.Fatalf("canonical BoundaryProcess wait = (%d, %v), want 137", exitCode, err)
+	}
 	waitForLiveVMStoppedState(t, ctx, host.StateDir, string(signalHandle.ID))
 	t.Log("live canonical process KILL reached the workload process group, was reported as exit 137, and powered off the guest")
 
@@ -535,9 +550,13 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 	if err != nil || state.Status != "running" {
 		t.Fatalf("VM state before non-TTY main-process attachment=%+v err=%v", state, err)
 	}
-	mainStream, err := terminal.OpenMainProcessStream(ctx, pipeHandle.ID)
+	mainBoundary, err = terminal.OpenMainProcessBoundary(ctx, pipeHandle.ID)
 	if err != nil {
-		t.Fatalf("open late main-process pipe attachment: %v", err)
+		t.Fatalf("open non-TTY canonical BoundaryProcess: %v", err)
+	}
+	mainStream, err := mainBoundary.Attach(ctx)
+	if err != nil {
+		t.Fatalf("attach late main-process pipe BoundaryProcess: %v", err)
 	}
 	var pipeStdout, pipeStderr []byte
 	pipeExit := -1
@@ -579,6 +598,14 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 	if err := terminal.Start(ctx, restartHandle.ID); err != nil {
 		t.Fatalf("explicitly restart terminal MicroVM: %v", err)
 	}
+	runningProvider, ok := any(terminal).(driver.RunningBoundaryProvider)
+	if !ok {
+		t.Fatal("VM driver does not expose the aggregate running-boundary contract")
+	}
+	restartBoundary, err := runningProvider.OpenRunningBoundary(ctx, restartHandle.ID)
+	if err != nil {
+		t.Fatalf("open restarted aggregate VM boundary: %v", err)
+	}
 	terminalState, err = openStateStore(host.StateDir)
 	if err != nil {
 		t.Fatal(err)
@@ -587,9 +614,11 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 	if err != nil || state.Status != "running" || state.MainProcessExitCode != nil || state.MainProcessInstanceID != "" {
 		t.Fatalf("explicit restart state=%+v err=%v; want running state with cleared terminal result", state, err)
 	}
-	if err := terminal.Stop(ctx, restartHandle.ID); err != nil {
-		t.Fatalf("stop restarted terminal MicroVM: %v", err)
+	if err := restartBoundary.Terminate(ctx); err != nil {
+		t.Fatalf("terminate aggregate running VM boundary: %v", err)
 	}
+	waitForLiveVMStoppedState(t, ctx, host.StateDir, string(restartHandle.ID))
+	t.Log("aggregate RunningBoundary termination stopped and acknowledged the owned VM process tree")
 	t.Log("live explicit Start closed the previous terminal VM worker, booted a fresh worker, and cleared its exit result")
 
 	proxyCLI := strings.TrimSpace(os.Getenv("QUARSHELL_VM_TEST_PROXY_CLI"))
@@ -599,26 +628,77 @@ func TestLiveMicroVMLifecycle(t *testing.T) {
 	assertLiveGatewayCredentialLaunch(t, ctx, host, rootfsTar, initBin, supervisorBin, sshBin, proxyCLI, policyPath)
 }
 
-func waitForSupervisorExitCode(t *testing.T, ctx context.Context, path string, want int32) {
+func assertLiveRunningBoundary(t *testing.T, ctx context.Context, sandbox *Driver, id core.ID, echoHelper string) {
 	t.Helper()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		data, err := os.ReadFile(path)
-		if err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
-				var request supervisorControlTestRequest
-				if json.Unmarshal([]byte(line), &request) == nil && request.Operation == "report_main_process_exit" && request.ExitCode == want {
-					return
-				}
-			}
+	provider, ok := any(sandbox).(driver.RunningBoundaryProvider)
+	if !ok {
+		t.Fatal("VM driver does not expose the aggregate running-boundary contract")
+	}
+	boundary, err := provider.OpenRunningBoundary(ctx, id)
+	if err != nil {
+		t.Fatalf("open VM running boundary: %v", err)
+	}
+	if boundary.Agent() == nil || boundary.Exec() == nil || boundary.LoopbackConnector() == nil {
+		t.Fatal("VM running boundary omitted an owned capability")
+	}
+	if err := sandbox.CopyTo(ctx, id, echoHelper, "/sandbox/boundary-loopback-echo"); err != nil {
+		t.Fatalf("copy running-boundary loopback helper: %v", err)
+	}
+	const port = 41237
+	session, err := boundary.Exec().Exec(ctx, driver.BoundaryExecSpec{Argv: []string{"/sandbox/boundary-loopback-echo", strconv.Itoa(port)}})
+	if err != nil {
+		t.Fatalf("start command through running-boundary exec: %v", err)
+	}
+	defer session.Attachment.Close()
+	time.Sleep(150 * time.Millisecond)
+	connection, err := boundary.LoopbackConnector().Connect(ctx, "127.0.0.1", port)
+	if err != nil {
+		_ = session.Process.Terminate(context.Background())
+		t.Fatalf("connect through running-boundary loopback connector: %v", err)
+	}
+	want := []byte("running-boundary-loopback")
+	if _, err := connection.Write(want); err != nil {
+		t.Fatalf("write running-boundary loopback payload: %v", err)
+	}
+	got := make([]byte, len(want))
+	if _, err := io.ReadFull(connection, got); err != nil || !bytes.Equal(got, want) {
+		_ = connection.Close()
+		t.Fatalf("running-boundary loopback response=%q err=%v", got, err)
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatalf("close running-boundary loopback stream: %v", err)
+	}
+	if err := session.Process.Terminate(ctx); err != nil {
+		t.Fatalf("terminate running-boundary exec process: %v", err)
+	}
+	if _, err := session.Process.Wait(ctx); err != nil {
+		t.Fatalf("wait for running-boundary exec process: %v", err)
+	}
+	ttySession, err := boundary.Exec().Exec(ctx, driver.BoundaryExecSpec{
+		Argv: []string{"/bin/sh", "-c", "printf 'running-boundary-tty\\n'"}, TTY: true, Columns: 91, Rows: 37,
+	})
+	if err != nil {
+		t.Fatalf("start PTY command through running-boundary exec: %v", err)
+	}
+	defer ttySession.Attachment.Close()
+	if err := ttySession.Attachment.Resize(ctx, 103, 41); err != nil {
+		t.Fatalf("resize running-boundary PTY: %v", err)
+	}
+	var ttyOutput []byte
+	for !bytes.Contains(ttyOutput, []byte("running-boundary-tty")) {
+		output, readErr := ttySession.Attachment.ReadOutput()
+		ttyOutput = append(ttyOutput, output.Stdout...)
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			t.Fatalf("read running-boundary PTY output: %v", readErr)
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("supervisor did not report canonical process exit %d: %v", want, ctx.Err())
-		case <-ticker.C:
+		if readErr != nil && !bytes.Contains(ttyOutput, []byte("running-boundary-tty")) {
+			t.Fatalf("running-boundary PTY output missing expected payload: %q", ttyOutput)
 		}
 	}
+	if _, err := ttySession.Process.Wait(ctx); err != nil {
+		t.Fatalf("wait for running-boundary PTY process: %v", err)
+	}
+	t.Log("VM RunningBoundary exposed canonical agent, non-TTY and PTY exec, termination, and authenticated guest loopback TCP")
 }
 
 func assertLiveIsolationDescriptor(t *testing.T, stateDir string, id core.ID) string {
@@ -1447,15 +1527,25 @@ func assertLiveGuestProxyCAInstalled(t *testing.T, ctx context.Context, d *Drive
 
 func assertLiveMainProcessTTY(t *testing.T, ctx context.Context, d *Driver, id core.ID, payload string) string {
 	t.Helper()
-	terminal, err := d.OpenMainProcessTTY(ctx, id, 101, 41)
+	process, err := d.OpenMainProcessBoundary(ctx, id)
 	if err != nil {
-		t.Fatalf("open canonical VM main-process TTY: %v", err)
+		t.Fatalf("open canonical VM main-process BoundaryProcess: %v", err)
 	}
-	defer terminal.Close()
+	if process.SessionID() == "" {
+		t.Fatal("canonical VM BoundaryProcess has no stable session ID")
+	}
+	attachment, err := process.Attach(ctx)
+	if err != nil {
+		t.Fatalf("attach canonical VM main-process BoundaryProcess: %v", err)
+	}
+	defer attachment.Close()
+	if err := attachment.Resize(ctx, 101, 41); err != nil {
+		t.Fatalf("resize canonical VM BoundaryProcess TTY: %v", err)
+	}
 	lines := make(chan string, 16)
 	readErr := make(chan error, 1)
 	go func() {
-		scanner := bufio.NewScanner(terminal)
+		scanner := bufio.NewScanner(&liveBoundaryAttachmentReader{attachment: attachment})
 		for scanner.Scan() {
 			select {
 			case lines <- scanner.Text():
@@ -1465,7 +1555,7 @@ func assertLiveMainProcessTTY(t *testing.T, ctx context.Context, d *Driver, id c
 		}
 		readErr <- scanner.Err()
 	}()
-	if _, err := io.WriteString(terminal, payload+"\n"); err != nil {
+	if _, err := attachment.Write([]byte(payload + "\n")); err != nil {
 		t.Fatalf("write canonical VM main-process TTY: %v", err)
 	}
 	want := "main-tty:" + payload + ":41 101"
@@ -1491,6 +1581,34 @@ func assertLiveMainProcessTTY(t *testing.T, ctx context.Context, d *Driver, id c
 			t.Fatalf("canonical VM main-process TTY did not return %q", want)
 		case <-ctx.Done():
 			t.Fatalf("context ended while waiting for canonical VM main-process TTY: %v", ctx.Err())
+		}
+	}
+}
+
+type liveBoundaryAttachmentReader struct {
+	attachment driver.BoundaryProcessAttachment
+	pending    []byte
+}
+
+func (r *liveBoundaryAttachmentReader) Read(payload []byte) (int, error) {
+	if len(r.pending) > 0 {
+		count := copy(payload, r.pending)
+		r.pending = r.pending[count:]
+		return count, nil
+	}
+	for {
+		output, err := r.attachment.ReadOutput()
+		data := output.Stdout
+		if len(data) == 0 {
+			data = output.Stderr
+		}
+		if len(data) != 0 {
+			count := copy(payload, data)
+			r.pending = append(r.pending[:0], data[count:]...)
+			return count, nil
+		}
+		if err != nil {
+			return 0, err
 		}
 	}
 }
@@ -1521,17 +1639,52 @@ func assertLiveGuestExec(t *testing.T, ctx context.Context, d *Driver, id core.I
 	}
 	streamCtx, streamCancel := context.WithTimeout(ctx, 10*time.Second)
 	streamSession, err := d.OpenExecStream(streamCtx, id, driver.ExecTerminalRequest{
-		Argv:    []string{"/bin/sh", "-c", "read value; printf 'stream-out:%s' \"$value\"; printf 'stream-err:%s' \"$value\" >&2; exit 11"},
+		Argv:    []string{"/bin/sh", "-c", "printf 'stream-ready\\n'; read value; printf 'stream-out:%s' \"$value\"; printf 'stream-err:%s' \"$value\" >&2; exit 11"},
 		WorkDir: "/sandbox", NoLoginShell: true,
 	})
 	if err != nil {
 		streamCancel()
 		t.Fatalf("open live non-TTY guest exec stream: %v", err)
 	}
+	processOwner, ok := streamSession.(driver.BoundaryProcessOwner)
+	if !ok || processOwner.BoundaryProcess() == nil {
+		streamCancel()
+		_ = streamSession.Close()
+		t.Fatal("live non-TTY exec stream did not expose its retained BoundaryProcess handle")
+	}
+	boundaryProcess := processOwner.BoundaryProcess()
+	var initialOutput strings.Builder
+	for !strings.Contains(initialOutput.String(), "stream-ready") {
+		output, readErr := streamSession.ReadOutput()
+		if readErr != nil {
+			streamCancel()
+			_ = streamSession.Close()
+			t.Fatalf("read initial live non-TTY exec output: %v", readErr)
+		}
+		initialOutput.Write(output.Stdout)
+	}
+	retainedExecStreamID, ok := streamSession.(driver.ExecStreamSessionID)
+	if !ok || retainedExecStreamID.SessionID() == "" {
+		streamCancel()
+		_ = streamSession.Close()
+		t.Fatal("live non-TTY exec stream did not expose a retained session ID")
+	}
+	if err := streamSession.Close(); err != nil {
+		streamCancel()
+		t.Fatalf("detach live non-TTY exec stream: %v", err)
+	}
+	streamSession, err = d.AttachExecStream(streamCtx, id, retainedExecStreamID.SessionID())
+	if err != nil {
+		streamCancel()
+		t.Fatalf("reattach live non-TTY exec stream: %v", err)
+	}
+	if !strings.Contains(initialOutput.String(), "stream-ready") {
+		t.Fatalf("initial live exec output=%q", initialOutput.String())
+	}
 	if _, err := streamSession.Write([]byte("live-input\n")); err != nil {
 		streamCancel()
 		_ = streamSession.Close()
-		t.Fatalf("write live non-TTY exec stdin: %v", err)
+		t.Fatalf("write reattached non-TTY exec stdin: %v", err)
 	}
 	if err := streamSession.CloseStdin(); err != nil {
 		streamCancel()
@@ -1553,10 +1706,40 @@ func assertLiveGuestExec(t *testing.T, ctx context.Context, d *Driver, id core.I
 			streamExit = output.ExitCode
 		}
 	}
+	for attempt := 0; attempt < 2; attempt++ {
+		waitedExit, waitErr := boundaryProcess.Wait(ctx)
+		if waitErr != nil || waitedExit != streamExit {
+			streamCancel()
+			_ = streamSession.Close()
+			t.Fatalf("live retained process Wait attempt %d = (%d, %v), stream exit %d", attempt, waitedExit, waitErr, streamExit)
+		}
+	}
 	streamCancel()
 	_ = streamSession.Close()
 	if !strings.Contains(streamStdout.String(), "stream-out:live-input") || !strings.Contains(streamStderr.String(), "stream-err:live-input") || streamExit != 11 {
 		t.Fatalf("live non-TTY exec stdout=%q stderr=%q exit=%d", streamStdout.String(), streamStderr.String(), streamExit)
+	}
+	terminationSession, err := d.OpenExecStream(ctx, id, driver.ExecTerminalRequest{
+		Argv: []string{"/bin/sh", "-c", "exec sleep 60"}, WorkDir: "/sandbox", NoLoginShell: true,
+	})
+	if err != nil {
+		t.Fatalf("open live retained process for detached termination: %v", err)
+	}
+	terminationOwner, ok := terminationSession.(driver.BoundaryProcessOwner)
+	if !ok || terminationOwner.BoundaryProcess() == nil {
+		_ = terminationSession.Close()
+		t.Fatal("live exec stream did not expose process control for detached termination")
+	}
+	terminationProcess := terminationOwner.BoundaryProcess()
+	if err := terminationSession.Close(); err != nil {
+		t.Fatalf("detach live process before termination: %v", err)
+	}
+	if err := terminationProcess.Terminate(ctx); err != nil {
+		t.Fatalf("terminate detached live process: %v", err)
+	}
+	terminatedExit, err := terminationProcess.Wait(ctx)
+	if err != nil || terminatedExit < 128 {
+		t.Fatalf("wait detached terminated process = (%d, %v), want signal exit", terminatedExit, err)
 	}
 	assertLiveGuestArchiveTransfer(t, ctx, d, id)
 	marker := "/sandbox/exec-timeout-must-stop"
@@ -1855,6 +2038,10 @@ func assertLiveExecTerminalReattach(t *testing.T, ctx context.Context, d *Driver
 		t.Fatalf("reattach to live retained terminal: %v", err)
 	}
 	defer attached.Close()
+	attachedOwner, ok := attached.(driver.BoundaryProcessOwner)
+	if !ok || attachedOwner.BoundaryProcess() == nil {
+		t.Fatal("reattached TTY session did not expose its BoundaryProcess handle")
+	}
 	if _, err := io.WriteString(attached, "reattached-input\n"); err != nil {
 		t.Fatalf("write to reattached terminal: %v", err)
 	}
@@ -1865,6 +2052,12 @@ func assertLiveExecTerminalReattach(t *testing.T, ctx context.Context, d *Driver
 	code, err := attached.Wait(ctx)
 	if err != nil || code != 0 || !bytes.Contains(output, []byte("received:reattached-input")) {
 		t.Fatalf("reattached terminal result = exit %d output %q err=%v", code, output, err)
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		waited, waitErr := attachedOwner.BoundaryProcess().Wait(ctx)
+		if waitErr != nil || waited != code {
+			t.Fatalf("BoundaryProcess TTY wait attempt %d = (%d, %v), want %d", attempt, waited, waitErr, code)
+		}
 	}
 
 	retained, err := d.OpenExecTerminal(ctx, id, driver.ExecTerminalRequest{
@@ -1877,11 +2070,18 @@ func assertLiveExecTerminalReattach(t *testing.T, ctx context.Context, d *Driver
 	if !ok {
 		t.Fatal("live terminal has no stable ID for detached termination")
 	}
+	retainedOwner, ok := retained.(driver.BoundaryProcessOwner)
+	if !ok || retainedOwner.BoundaryProcess() == nil {
+		t.Fatal("retained TTY session did not expose its BoundaryProcess handle")
+	}
+	if retainedOwner.BoundaryProcess().SessionID() != retainedID.SessionID() {
+		t.Fatal("retained TTY session and BoundaryProcess handle disagree on session ID")
+	}
 	if err := retained.Close(); err != nil {
 		t.Fatalf("detach terminal before termination: %v", err)
 	}
-	if err := reattacher.TerminateExecTerminal(ctx, id, retainedID.SessionID()); err != nil {
-		t.Fatalf("terminate detached live terminal: %v", err)
+	if err := retainedOwner.BoundaryProcess().Terminate(ctx); err != nil {
+		t.Fatalf("terminate detached live terminal through BoundaryProcess: %v", err)
 	}
 	terminated, err := reattacher.AttachExecTerminal(ctx, id, retainedID.SessionID())
 	if err != nil {
@@ -1894,6 +2094,9 @@ func assertLiveExecTerminalReattach(t *testing.T, ctx context.Context, d *Driver
 	}
 	if code, err := terminated.Wait(ctx); err != nil || code != 128+int(syscall.SIGTERM) {
 		t.Fatalf("detached live terminal termination = exit %d err=%v", code, err)
+	}
+	if code, err := retainedOwner.BoundaryProcess().Wait(ctx); err != nil || code != 128+int(syscall.SIGTERM) {
+		t.Fatalf("BoundaryProcess wait after detached terminal termination = exit %d err=%v", code, err)
 	}
 }
 

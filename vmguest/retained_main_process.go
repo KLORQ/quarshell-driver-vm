@@ -3,6 +3,7 @@
 package vmguest
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -88,6 +89,10 @@ func (s *controlServer) retainMainProcess(id string, command *exec.Cmd, stdin, s
 }
 
 func (s *controlServer) attachMainProcess(connection net.Conn, id string) {
+	s.attachMainProcessFromCursor(connection, id, 0, false)
+}
+
+func (s *controlServer) attachMainProcessFromCursor(connection net.Conn, id string, cursor uint64, cursorSet bool) {
 	s.mainProcessMu.Lock()
 	process := s.mainProcesses[id]
 	s.mainProcessMu.Unlock()
@@ -103,10 +108,10 @@ func (s *controlServer) attachMainProcess(connection net.Conn, id string) {
 			_ = writeResponse(connection, Response{Error: "main-process session not found"})
 			return
 		}
-		terminal.attach(connection)
+		terminal.attachFromCursor(connection, cursor, cursorSet)
 		return
 	}
-	process.attach(connection)
+	process.attachFromCursor(connection, cursor, cursorSet)
 }
 
 func (s *controlServer) waitForMainProcessAttachment(id string) {
@@ -193,14 +198,98 @@ func (process *retainedMainProcess) wait() {
 	})
 }
 
+func (process *retainedMainProcess) waitForExit(ctx context.Context) (int, error) {
+	if ctx == nil {
+		return 0, fmt.Errorf("process wait context is nil")
+	}
+	for {
+		process.mu.Lock()
+		if process.finished {
+			code := process.exitCode
+			process.mu.Unlock()
+			return code, nil
+		}
+		changed := process.outputChanged
+		process.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
+func (process *retainedMainProcess) exitCodeValue() int {
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	return process.exitCode
+}
+
+func (process *retainedMainProcess) signal(name string) error {
+	signal, ok := guestTerminalSignal(name)
+	if !ok {
+		return fmt.Errorf("unsupported process signal %q", name)
+	}
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	if process.finished {
+		return nil
+	}
+	if err := syscall.Kill(-process.pid, signal); err != nil && err != syscall.ESRCH {
+		return fmt.Errorf("signal guest exec process group: %w", err)
+	}
+	return nil
+}
+
+func (process *retainedMainProcess) terminate(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("process termination context is nil")
+	}
+	process.mu.Lock()
+	finished := process.finished
+	pid := process.pid
+	process.mu.Unlock()
+	if finished {
+		return nil
+	}
+	if err := process.signal("terminate"); err != nil {
+		return err
+	}
+	_, waitErr := process.waitForExit(ctx)
+	if waitErr != nil {
+		return waitErr
+	}
+	// The leader may exit while descendants still hold inherited output pipes.
+	// The stable process-group ID remains owned until those descriptors drain.
+	if err := syscall.Kill(-pid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+		return fmt.Errorf("kill remaining guest exec descendants: %w", err)
+	}
+	return nil
+}
+
 func (process *retainedMainProcess) attach(connection net.Conn) {
+	process.attachFromCursor(connection, 0, false)
+}
+
+func (process *retainedMainProcess) attachFromCursor(connection net.Conn, cursor uint64, cursorSet bool) {
 	process.mu.Lock()
 	inputOwner := process.connection == nil && !process.stdinClosed && process.stdin != nil
 	if inputOwner {
 		process.connection = connection
 	}
-	cursor := process.outputFirstSeq
-	if err := writeResponse(connection, Response{PID: process.pid, SessionID: process.id, InputOwner: inputOwner}); err != nil {
+	stdinClosed := process.stdinClosed || process.stdin == nil
+	if !cursorSet {
+		cursor = process.outputFirstSeq
+	}
+	if cursor > process.outputNextSeq {
+		if inputOwner && process.connection == connection {
+			process.connection = nil
+		}
+		process.mu.Unlock()
+		_ = writeResponse(connection, Response{Error: "output cursor is ahead of retained process output"})
+		return
+	}
+	if err := writeResponse(connection, Response{PID: process.pid, SessionID: process.id, InputOwner: inputOwner, StdinClosed: stdinClosed}); err != nil {
 		if inputOwner {
 			process.connection = nil
 		}
@@ -234,6 +323,7 @@ func (process *retainedMainProcess) attach(connection net.Conn) {
 		case cursor < process.outputNextSeq:
 			frame = process.output[cursor-process.outputFirstSeq]
 			cursor++
+			frame.Sequence = cursor
 		case process.finished:
 			frame = TerminalFrame{Type: "exit", ExitCode: process.exitCode}
 			process.mu.Unlock()

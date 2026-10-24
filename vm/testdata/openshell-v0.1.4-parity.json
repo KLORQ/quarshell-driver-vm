@@ -149,7 +149,7 @@
         "quarshell-gateway/internal/application/sandbox/exec_admission_test.go::TestExecAdmissionSurvivesSQLiteReopen",
         "quarshell-gateway/internal/transport/applicationgrpc/exec_test.go::TestExecSandboxRPC",
         "quarshell-driver-vm/vmguest/agent_linux_test.go::TestGuestControlExecStreamSupportsSeparateOutputAndStdinEOF",
-        "quarshell-driver-vm/vmguest/agent_linux_test.go::TestGuestControlExecStreamTerminatesProcessGroupOnDisconnect",
+        "quarshell-driver-vm/vmguest/agent_linux_test.go::TestGuestControlExecStreamRetainsProcessAfterDisconnectAndReattaches",
         "quarshell-driver-vm/vm/live_acceptance_test.go::assertLiveGuestExec",
         "quarshell-driver-vm/vm/live_acceptance_test.go::assertLivePTYSignal",
         "quarshell-gateway/internal/transport/applicationgrpc/live_vm_watch_acceptance_test.go::assertLiveVMGatewayPTYInterrupt",
@@ -161,9 +161,12 @@
         "quarshell-driver-vm/vmguest/agent_linux_test.go::TestGuestRetainedTerminalCanReattachAfterTransportLoss",
         "quarshell-driver-vm/vmguest/agent_linux_test.go::TestGuestRetainedTerminalCanBeTerminatedWhileDetached",
         "quarshell-driver-vm/vm/live_acceptance_test.go::assertLiveExecTerminalReattach",
-        "quarshell-gateway/internal/application/sandbox/exec_admission.go::SetExecTerminalSessionID",
+        "quarshell-gateway/internal/application/sandbox/exec_admission.go::SetExecSessionID",
         "quarshell-gateway/internal/application/sandbox/exec_admission_test.go::TestExecAdmissionSurvivesSQLiteReopen",
-        "quarshell-gateway/internal/transport/applicationgrpc/exec_test.go::TestExecSandboxInteractiveReattachesOnDuplicateTTYRequestID"
+        "quarshell-gateway/internal/transport/applicationgrpc/exec_test.go::TestExecSandboxInteractiveReattachesOnDuplicateTTYRequestID",
+        "quarshell-driver-vm/vm/exec_stream.go::AttachExecStream",
+        "quarshell-driver-vm/vm/live_acceptance_test.go::TestLiveMicroVMLifecycle",
+        "quarshell-gateway/internal/transport/applicationgrpc/exec_test.go::TestExecSandboxInteractiveReattachesRetainedNonTTYProcess"
       ]
     },
     {
@@ -297,7 +300,19 @@
         "quarshell-driver-vm/vmguest/agent_linux_test.go::TestRetainedMainProcessReplaysOutputFromPriorAttachment",
         "quarshell-driver-vm/vmguest/agent_linux_test.go::TestRetainedMainProcessAllowsOutputReadersWithOneInputOwner",
         "quarshell-driver-vm/vmguest/agent_linux_test.go::TestRetainedMainProcessReportsLaggedOutputCursor",
+        "quarshell-driver-vm/vmguest/agent_linux_test.go::TestGuestRetainedTerminalAllowsMultipleOutputReadersWithOneInputOwner",
         "quarshell-driver-vm/vm/exec_stream_test.go::TestVMExecStreamReportsLostMainProcessOutput",
+        "quarshell-driver/driver/backend.go::BoundaryProcess",
+        "quarshell-driver-vm/vm/exec_stream.go::vmBoundaryProcess",
+        "quarshell-driver-vm/vmguest/agent_linux_test.go::TestRetainedExecProcessWaitSignalAndTerminateAreStable",
+        "quarshell-driver-vm/vm/live_acceptance_test.go::TestLiveMicroVMLifecycle",
+        "quarshell-gateway/internal/application/sandbox/service.go::RecordMainProcessExit",
+        "quarshell-gateway/internal/application/sandboxruntime/docker.go::RecordMainProcessExit",
+        "quarshell-gateway/internal/application/sandbox/service_test.go::TestMainProcessExitIsDurableIdempotentAndGenerationBound",
+        "quarshell-driver/driver/backend.go::RunningBoundary",
+        "quarshell-driver-vm/vm/running_boundary.go::OpenRunningBoundary",
+        "quarshell-driver-vm/vmguest/loopback_linux.go::dialLoopback",
+        "quarshell-driver-vm/vm/live_acceptance_test.go::assertLiveRunningBoundary",
         "plans/evidence/runs/vm-openshell-main-2026-10-23.md"
       ]
     },

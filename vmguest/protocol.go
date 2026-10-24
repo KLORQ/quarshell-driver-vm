@@ -32,6 +32,10 @@ type Request struct {
 	Columns                    uint32   `json:"columns,omitempty"`
 	Rows                       uint32   `json:"rows,omitempty"`
 	SessionID                  string   `json:"session_id,omitempty"`
+	OutputCursor               uint64   `json:"output_cursor,omitempty"`
+	OutputCursorSet            bool     `json:"output_cursor_set,omitempty"`
+	TargetHost                 string   `json:"target_host,omitempty"`
+	TargetPort                 uint32   `json:"target_port,omitempty"`
 	Path                       string   `json:"path,omitempty"`
 	Mode                       uint32   `json:"mode,omitempty"`
 	Data                       []byte   `json:"data,omitempty"`
@@ -41,6 +45,7 @@ type Response struct {
 	Version         uint16 `json:"version"`
 	Error           string `json:"error,omitempty"`
 	ExitCode        int    `json:"exit_code,omitempty"`
+	Finished        bool   `json:"finished,omitempty"`
 	Stdout          []byte `json:"stdout,omitempty"`
 	Stderr          []byte `json:"stderr,omitempty"`
 	Data            []byte `json:"data,omitempty"`
@@ -48,6 +53,7 @@ type Response struct {
 	PID             int    `json:"pid,omitempty"`
 	SessionID       string `json:"session_id,omitempty"`
 	InputOwner      bool   `json:"input_owner,omitempty"`
+	StdinClosed     bool   `json:"stdin_closed,omitempty"`
 	WorkloadUID     uint32 `json:"workload_uid,omitempty"`
 	WorkloadGID     uint32 `json:"workload_gid,omitempty"`
 }
@@ -62,6 +68,7 @@ type TerminalFrame struct {
 	ExitCode   int    `json:"exit_code,omitempty"`
 	Signal     string `json:"signal,omitempty"`
 	LostChunks uint64 `json:"lost_chunks,omitempty"`
+	Sequence   uint64 `json:"sequence,omitempty"`
 }
 
 func WriteFrame(writer io.Writer, payload []byte) error {
