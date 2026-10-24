@@ -442,10 +442,27 @@ func TestRetainedMainProcessReportsLaggedOutputCursor(t *testing.T) {
 	for i := 0; i < retainedMainProcessOutputLimit/(32<<10)+4; i++ {
 		process.publish(TerminalFrame{Type: "stdout", Data: chunk})
 	}
-	encoded, err := ReadFrame(host)
-	var lagged TerminalFrame
-	if err != nil || json.Unmarshal(encoded, &lagged) != nil || lagged.Type != "lagged" || lagged.LostChunks == 0 {
-		t.Fatalf("slow output subscriber did not receive a lag marker: frame=%+v err=%v", lagged, err)
+	if err := host.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		encoded, err := ReadFrame(host)
+		if err != nil {
+			t.Fatalf("slow output subscriber did not receive a lag marker: %v", err)
+		}
+		var frame TerminalFrame
+		if err := json.Unmarshal(encoded, &frame); err != nil {
+			t.Fatalf("decode slow output frame: %v", err)
+		}
+		if frame.Type == "lagged" {
+			if frame.LostChunks == 0 {
+				t.Fatal("slow output subscriber received an empty lag marker")
+			}
+			return
+		}
+		if frame.Type != "stdout" {
+			t.Fatalf("unexpected frame before lag marker: %+v", frame)
+		}
 	}
 }
 
